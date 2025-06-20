@@ -1,0 +1,163 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+// LinkScore - SEO Link Building Assessment Tool Database Schema
+// Comprehensive schema for user data, analyses, security, and rate limiting
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Users table with encrypted PII protection
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  emailEncrypted String @map("email_encrypted") // Encrypted PII
+  emailHash    String   @unique @map("email_hash") @db.VarChar(64) // For lookups
+  firstName    String?  @map("first_name") @db.VarChar(100)
+  phoneHash    String?  @map("phone_hash") @db.VarChar(64) // Hashed for privacy
+  domain       String   @db.VarChar(255)
+  companyName  String?  @map("company_name") @db.VarChar(255)
+  location     String   @db.VarChar(50)
+  ipAddress    String?  @map("ip_address") @db.Inet
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+  
+  // Relationships
+  analyses Analysis[]
+  securityEvents SecurityEvent[]
+
+  @@index([emailHash])
+  @@index([domain])
+  @@map("users")
+}
+
+// Analysis results with comprehensive scoring and lead data
+model Analysis {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  
+  // Campaign Data
+  monthlySpend       Int      @map("monthly_spend")
+  investmentMonths   Int      @map("investment_months")
+  spendRange         String   @map("spend_range") @db.VarChar(20) // Store original user selection
+  durationRange      String   @map("duration_range") @db.VarChar(20) // Store original user selection
+  campaignStartDate  DateTime @map("campaign_start_date") @db.Date
+  targetKeywords     String[] @map("target_keywords")
+  
+  // Scores
+  linkScore         Decimal @map("link_score") @db.Decimal(3,1)
+  performanceScore  Decimal @map("performance_score") @db.Decimal(3,1)
+  competitiveScore  Decimal @map("competitive_score") @db.Decimal(3,1)
+  opportunityScore  Decimal @map("opportunity_score") @db.Decimal(3,1)
+  
+  // Lead Scoring
+  priorityScore     Int @map("priority_score") // 0-100 for sales prioritization
+  potentialScore    Int @map("potential_score") // 0-100 for long-term value
+  
+  // Metrics
+  authorityLinksGained    Int?     @map("authority_links_gained")
+  expectedLinks           Int?     @map("expected_links")
+  currentAuthorityLinks   Int?     @map("current_authority_links")
+  competitorAverageLinks  Int?     @map("competitor_average_links")
+  linkGapsTotal           Int?     @map("link_gaps_total")
+  linkGapsHighPriority    Int?     @map("link_gaps_high_priority")
+  costPerAuthorityLink    Decimal? @map("cost_per_authority_link") @db.Decimal(10,2)
+  
+  // Analysis Data (JSON)
+  competitors     Json? // Competitor domains and data
+  historicalData  Json? @map("historical_data") // Time-series link data
+  linkGapData     Json? @map("link_gap_data") // Link gap opportunities
+  redFlags        Json? @map("red_flags") // Critical issues identified
+  
+  // Metadata
+  processingTimeSeconds Int?     @map("processing_time_seconds")
+  dataforseoCostUsd     Decimal? @map("dataforseo_cost_usd") @db.Decimal(8,4)
+  status                String   @default("processing") @db.VarChar(50)
+  errorMessage          String?  @map("error_message")
+  completedAt           DateTime? @map("completed_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+  
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([linkScore])
+  @@index([priorityScore])
+  @@index([createdAt])
+  @@map("analyses")
+}
+
+// Security events for monitoring and protection
+model SecurityEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ipAddress  String   @map("ip_address") @db.Inet
+  userId     String?  @map("user_id") @db.Uuid
+  eventType  String   @map("event_type") @db.VarChar(50)
+  severity   String   @db.VarChar(20)
+  details    Json?
+  userAgent  String?  @map("user_agent")
+  cfRay      String?  @map("cf_ray") @db.VarChar(100)
+  cfBotScore Int?     @map("cf_bot_score")
+  blocked    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+  
+  // Relationships
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([ipAddress])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("security_events")
+}
+
+// Rate limiting for API protection
+model RateLimit {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identifier   String   @db.VarChar(255) // IP, email, or domain
+  limitType    String   @map("limit_type") @db.VarChar(50) // submission_ip, submission_email, etc.
+  requestCount Int      @default(1) @map("request_count")
+  windowEnd    DateTime @map("window_end")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([identifier, limitType])
+  @@index([windowEnd])
+  @@map("rate_limits")
+}
+
+// Enums for type safety
+enum AnalysisStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  RETRY_PENDING
+
+  @@map("analysis_status")
+}
+
+enum SecurityEventType {
+  RATE_LIMIT_EXCEEDED
+  MALICIOUS_INPUT
+  SUSPICIOUS_DOMAIN
+  BOT_DETECTED
+  ANALYSIS_ERROR
+  
+  @@map("security_event_type")
+}
+
+enum SecuritySeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+  
+  @@map("security_severity")
+}
