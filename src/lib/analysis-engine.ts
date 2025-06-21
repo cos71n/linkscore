@@ -2,6 +2,8 @@ import { prisma } from './database';
 import { RobustAPIClient, DomainData, LinkGapResult, AUTHORITY_CRITERIA, AUSTRALIAN_LOCATIONS } from './dataforseo';
 import { 
   LinkScoreCalculator, 
+  ClientMetrics,
+  CompetitorMetrics,
   PerformanceData, 
   CompetitiveData, 
   InvestmentData, 
@@ -549,19 +551,54 @@ class AnalysisEngine {
     
     const performanceData = await this.calculator.calculatePerformanceData(this.apiClient, formData.domain, investmentData);
     const competitiveData = this.calculator.calculateCompetitiveData(clientLinks, topCompetitorData);
-    const linkScore = this.calculator.calculateLinkScore(performanceData, competitiveData, linkGaps);
+    
+    // Convert data to new format for comprehensive LinkScore calculation
+    const clientData: ClientMetrics = {
+      authorityLinksStart: performanceData.currentAuthorityLinks - performanceData.authorityLinksGained,
+      authorityLinksNow: performanceData.currentAuthorityLinks,
+      authorityLinksGained: performanceData.authorityLinksGained,
+      authorityLinksExpected: performanceData.expectedLinks,
+      monthlySpend: formData.monthlySpend,
+      campaignMonths: formData.investmentMonths,
+      totalInvestment: investmentData.totalInvestment,
+      costPerLink: performanceData.costPerAuthorityLink,
+      linkVelocity: performanceData.authorityLinksGained / Math.max(1, performanceData.campaignDuration)
+    };
+    
+    // Convert competitor data to new format
+    const competitorMetrics: CompetitorMetrics[] = topPerformers.map(competitor => {
+      const historicalData = topCompetitorHistoricalData[competitor];
+      return {
+        domain: competitor,
+        authorityLinksStart: historicalData?.historical || 0,
+        authorityLinksNow: historicalData?.current || 0,
+        authorityLinksGained: historicalData?.gained || 0,
+        gapToClient: (historicalData?.current || 0) - clientData.authorityLinksNow,
+        linkVelocity: (historicalData?.gained || 0) / Math.max(1, formData.investmentMonths)
+      };
+    });
+    
+    // Calculate comprehensive LinkScore using new algorithm
+    console.log('🎯 USING NEW COMPREHENSIVE ALGORITHM:');
+    console.log('Client Data:', JSON.stringify(clientData, null, 2));
+    console.log('Competitor Metrics:', JSON.stringify(competitorMetrics, null, 2));
+    
+    const linkScore = this.calculator.calculateLinkScore(clientData, competitorMetrics);
+    
+    console.log('✅ NEW ALGORITHM RESULT:', JSON.stringify(linkScore, null, 2));
     const redFlags = this.calculator.detectRedFlags(performanceData, competitiveData, linkGaps, investmentData);
     const leadScore = this.calculator.calculateAdvancedLeadScore(linkScore, investmentData, competitiveData, redFlags, formData.location);
     
     progressCallback({ 
       step: 'scoring_complete', 
-      message: `LinkScore calculated: ${linkScore.overall}/10 - Analysis complete!`, 
+      message: `LinkScore calculated: ${linkScore.overall}/100 (${linkScore.interpretation.grade}) - Analysis complete!`, 
       percentage: 95,
       personalized: true,
       data: {
         currentActivity: 'Analysis complete',
         metrics: { 
           linkScore: linkScore.overall,
+          grade: linkScore.interpretation.grade,
           expectedLinks: performanceData.expectedLinks,
           actualLinks: performanceData.authorityLinksGained
         }
@@ -590,9 +627,9 @@ class AnalysisEngine {
       where: { id: analysisId },
       data: {
         linkScore: result.linkScore.overall,
-        performanceScore: result.linkScore.performance,
-        competitiveScore: result.linkScore.competitive,
-        opportunityScore: result.linkScore.opportunity,
+        performanceScore: result.linkScore.breakdown.performanceVsExpected,
+        competitiveScore: result.linkScore.breakdown.competitivePosition,
+        opportunityScore: result.linkScore.breakdown.velocityComparison,
         priorityScore: result.leadScore.priority,
         potentialScore: result.leadScore.potential,
         

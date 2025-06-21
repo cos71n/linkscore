@@ -43,12 +43,106 @@ export async function GET(
       );
     }
 
-    // Prepare comprehensive results response
+    // Calculate actual market share growth using competitor historical data
+    const calculateMarketShareGrowth = () => {
+      const historicalData = analysis.historicalData || {};
+      const competitors = analysis.competitors || [];
+      
+      if (competitors.length === 0) return 8; // Neutral if no competitors
+      
+      // Client data
+      const clientStart = analysis.currentAuthorityLinks - analysis.authorityLinksGained;
+      const clientNow = analysis.currentAuthorityLinks;
+      
+      // Calculate total market at start and now
+      let totalLinksStart = clientStart;
+      let totalLinksNow = clientNow;
+      
+             competitors.forEach((competitor: string) => {
+         const compData = historicalData[competitor];
+         if (compData) {
+           totalLinksStart += compData.historical;
+           totalLinksNow += compData.current;
+         }
+       });
+      
+      if (totalLinksStart === 0 || totalLinksNow === 0) return 8;
+      
+      // Calculate market share change
+      const marketShareStart = clientStart / totalLinksStart;
+      const marketShareNow = clientNow / totalLinksNow;
+      const marketShareChange = marketShareNow - marketShareStart;
+      
+      console.log(`📊 MARKET SHARE CALCULATION:`);
+      console.log(`  Client Start: ${clientStart}, Now: ${clientNow}`);
+      console.log(`  Market Start: ${totalLinksStart}, Now: ${totalLinksNow}`);
+      console.log(`  Share Start: ${(marketShareStart * 100).toFixed(2)}%, Now: ${(marketShareNow * 100).toFixed(2)}%`);
+      console.log(`  Change: ${(marketShareChange * 100).toFixed(2)}%`);
+      
+      // Scoring based on market share change
+      if (marketShareChange >= 0.02) return 15;    // Gained 2%+ market share
+      if (marketShareChange >= 0.01) return 13;    // Gained 1-2% market share
+      if (marketShareChange >= 0.005) return 11;   // Gained 0.5-1% market share
+      if (marketShareChange >= 0) return 8;        // Maintained market share
+      if (marketShareChange >= -0.005) return 5;   // Lost <0.5% market share
+      if (marketShareChange >= -0.01) return 3;    // Lost 0.5-1% market share
+      return 1;                                    // Lost >1% market share
+    };
+
+    // Calculate actual cost efficiency
+    const calculateCostEfficiency = () => {
+      const expectedCostPerLink = (analysis.monthlySpend / 1000) * 667; // $667 per $1k spend baseline
+      const actualCostPerLink = analysis.costPerAuthorityLink;
+      
+      if (actualCostPerLink === 0 || expectedCostPerLink === 0) return 5;
+      
+      const efficiencyRatio = expectedCostPerLink / actualCostPerLink;
+      
+      console.log(`💰 COST EFFICIENCY CALCULATION:`);
+      console.log(`  Expected: $${expectedCostPerLink.toFixed(0)} per link`);
+      console.log(`  Actual: $${actualCostPerLink.toFixed(0)} per link`);
+      console.log(`  Efficiency Ratio: ${efficiencyRatio.toFixed(2)}`);
+      
+      if (efficiencyRatio >= 1.5) return 10;      // 50%+ better than expected
+      if (efficiencyRatio >= 1.2) return 9;       // 20-49% better than expected
+      if (efficiencyRatio >= 1.0) return 8;       // Meeting expected efficiency
+      if (efficiencyRatio >= 0.8) return 6;       // 20% worse than expected
+      if (efficiencyRatio >= 0.6) return 4;       // 40% worse than expected
+      if (efficiencyRatio >= 0.4) return 2;       // 60% worse than expected
+      return 1;                                   // >60% worse than expected
+    };
+
+    // Prepare comprehensive results response with new 100-point scale and detailed breakdown
     const linkScoreResult = {
-      overall: analysis.linkScore,
-      performance: analysis.performanceScore,
-      competitive: analysis.competitiveScore,
-      opportunity: analysis.opportunityScore
+      overall: analysis.linkScore.toString(),
+      breakdown: {
+        competitivePosition: analysis.competitiveScore || 0, // Out of 30
+        performanceVsExpected: analysis.performanceScore || 0, // Out of 25  
+        velocityComparison: analysis.opportunityScore || 0, // Out of 20
+        marketShareGrowth: calculateMarketShareGrowth(), // Out of 15 (now calculated!)
+        costEfficiency: calculateCostEfficiency(), // Out of 10 (now calculated!)
+        modifiers: 0 // Bonus/penalty points
+      },
+      interpretation: {
+        grade: getPerformanceGrade(analysis.linkScore),
+        label: analysis.linkScore >= 90 ? 'Exceptional' :
+               analysis.linkScore >= 80 ? 'Excellent' :
+               analysis.linkScore >= 70 ? 'Good' :
+               analysis.linkScore >= 60 ? 'Average' :
+               analysis.linkScore >= 50 ? 'Below Average' :
+               analysis.linkScore >= 40 ? 'Poor' :
+               analysis.linkScore >= 30 ? 'Critical' : 'Failure',
+        message: analysis.linkScore >= 80 ? 
+          "Outstanding performance - you're outperforming most competitors with excellent ROI." :
+          analysis.linkScore >= 60 ?
+          "Solid performance with room for improvement. Your SEO is working but could be optimized." :
+          analysis.linkScore >= 40 ?
+          "Below average performance indicates significant issues with your current SEO strategy." :
+          "Critical performance failure. Your SEO investment requires immediate strategic overhaul.",
+        urgency: analysis.linkScore <= 40 ? 'CRITICAL' :
+                 analysis.linkScore <= 50 ? 'HIGH' :
+                 analysis.linkScore <= 70 ? 'MEDIUM' : 'LOW'
+      }
     };
 
     const leadScores = {
@@ -57,21 +151,21 @@ export async function GET(
       overall: Math.round((analysis.priorityScore + analysis.potentialScore) / 2)
     };
 
-    // Determine result strategy based on LinkScore
+    // Determine result strategy based on new 100-point LinkScore
     const getResultStrategy = (score: number) => {
-      if (score <= 4) {
+      if (score <= 40) {
         return {
           type: 'CRISIS',
           headline: 'Your SEO Isn\'t Working',
           subheadline: 'Critical issues detected - immediate action required',
           cta: 'Get a Free Emergency SEO Audit',
           ctaColor: 'bg-red-600',
-          urgency: 'HIGH',
+          urgency: 'CRITICAL',
           leadType: 'PRIORITY'
         };
       }
       
-      if (score <= 6) {
+      if (score <= 60) {
         return {
           type: 'OPPORTUNITY',
           headline: 'Your SEO Has Potential',
@@ -83,7 +177,7 @@ export async function GET(
         };
       }
       
-      if (score >= 8) {
+      if (score >= 80) {
         return {
           type: 'SUCCESS',
           headline: 'Your SEO Is Working Well',
@@ -95,7 +189,7 @@ export async function GET(
         };
       }
       
-      // Score 6-8 (average)
+      // Score 60-80 (average/good)
       return {
         type: 'OPTIMIZATION',
         headline: 'Your SEO Shows Promise',
@@ -108,8 +202,14 @@ export async function GET(
     };
 
     const strategy = getResultStrategy(analysis.linkScore);
-    const leadType = calculator.getLeadType(leadScores, linkScoreResult);
-    const urgency = calculator.getUrgency(analysis.linkScore, analysis.priorityScore);
+    
+    // Determine lead type based on priority score and LinkScore
+    const leadType = leadScores.priority >= 70 ? 'PRIORITY' : 
+                     analysis.linkScore >= 80 ? 'POTENTIAL' : 'NURTURE';
+    
+    // Determine urgency based on LinkScore and priority score  
+    const urgency = (analysis.linkScore <= 40 || leadScores.priority >= 70) ? 'HIGH' :
+                    (analysis.linkScore <= 60 || leadScores.priority >= 50) ? 'MEDIUM' : 'LOW';
 
     // Calculate investment summary
     const totalInvestment = analysis.monthlySpend * analysis.investmentMonths;
@@ -211,13 +311,13 @@ export async function GET(
 
 // Helper functions
 function getPerformanceGrade(linkScore: number): string {
-  if (linkScore >= 9) return 'A+';
-  if (linkScore >= 8) return 'A';
-  if (linkScore >= 7) return 'B+';
-  if (linkScore >= 6) return 'B';
-  if (linkScore >= 5) return 'C+';
-  if (linkScore >= 4) return 'C';
-  if (linkScore >= 3) return 'D';
+  if (linkScore >= 90) return 'A+';
+  if (linkScore >= 80) return 'A';
+  if (linkScore >= 70) return 'B+';
+  if (linkScore >= 60) return 'B';
+  if (linkScore >= 50) return 'C+';
+  if (linkScore >= 40) return 'C';
+  if (linkScore >= 30) return 'D';
   return 'F';
 }
 

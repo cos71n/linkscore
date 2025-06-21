@@ -1,5 +1,73 @@
 import { DomainData, LinkGapResult } from './dataforseo';
 
+interface ClientMetrics {
+  // Historical data
+  authorityLinksStart: number;        // Links at campaign start
+  authorityLinksNow: number;          // Current authority links
+  authorityLinksGained: number;       // Links gained during campaign
+  authorityLinksExpected: number;     // Expected based on spend
+  
+  // Campaign details
+  monthlySpend: number;
+  campaignMonths: number;
+  totalInvestment: number;
+  costPerLink: number;              // Total investment ÷ links gained
+  
+  // Market context
+  linkVelocity: number;             // Links per month (gained ÷ months)
+  authorityDomains?: number;        // For diversity bonus calculation
+  recentLinksQuality?: number;      // Average DR of recent links
+}
+
+interface CompetitorMetrics {
+  domain: string;
+  authorityLinksStart: number;
+  authorityLinksNow: number;
+  authorityLinksGained: number;
+  gapToClient: number;              // competitor_links - client_links
+  linkVelocity: number;             // Links per month
+}
+
+interface LinkScoreResult {
+  overall: number;                  // Final score out of 100
+  breakdown: {
+    competitivePosition: number;    // Out of 30 points
+    performanceVsExpected: number;  // Out of 25 points
+    velocityComparison: number;     // Out of 20 points
+    marketShareGrowth: number;      // Out of 15 points
+    costEfficiency: number;         // Out of 10 points
+    modifiers: number;              // Bonus/penalty points
+  };
+  interpretation: {
+    grade: string;                  // A+ to F
+    label: string;                  // Exceptional, Excellent, etc.
+    message: string;                // Detailed interpretation
+    urgency: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  };
+}
+
+interface RedFlag {
+  type: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  message: string;
+  impact: string;
+  recommendation: string;
+}
+
+interface LeadScore {
+  priority: number; // 0-100 for sales urgency
+  potential: number; // 0-100 for long-term value
+  overall: number;
+}
+
+interface InvestmentData {
+  monthlySpend: number;
+  investmentMonths: number;
+  totalInvestment: number;
+  spendRange: string;
+  durationRange: string;
+}
+
 interface PerformanceData {
   authorityLinksGained: number;
   expectedLinks: number;
@@ -17,102 +85,370 @@ interface CompetitiveData {
   gapPercentage: number;
 }
 
-interface InvestmentData {
-  monthlySpend: number;
-  investmentMonths: number;
-  totalInvestment: number;
-  spendRange: string;
-  durationRange: string;
-}
-
-interface LinkScoreResult {
-  overall: number;
-  performance: number;
-  competitive: number;
-  opportunity: number;
-}
-
-interface RedFlag {
-  type: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  message: string;
-  impact: string;
-  recommendation: string;
-}
-
-interface LeadScore {
-  priority: number; // 0-100 for sales urgency
-  potential: number; // 0-100 for long-term value
-  overall: number;
-}
-
 class LinkScoreCalculator {
   
-  // Calculate LinkScore using exact PRD formula
+  /**
+   * Calculate comprehensive LinkScore using the new 100-point algorithm
+   */
   calculateLinkScore(
+    clientData: ClientMetrics,
+    competitorData: CompetitorMetrics[]
+  ): LinkScoreResult {
+    
+    // Core components (100 points total)
+    const competitivePosition = this.calculateCompetitivePosition(
+      clientData.authorityLinksNow, 
+      competitorData
+    );
+    
+    const performanceVsExpected = this.calculatePerformanceVsExpected(
+      clientData.authorityLinksGained, 
+      clientData.authorityLinksExpected
+    );
+    
+    const velocityComparison = this.calculateVelocityComparison(
+      clientData.linkVelocity, 
+      competitorData
+    );
+    
+    const marketShareGrowth = this.calculateMarketShareGrowth(
+      clientData.authorityLinksStart,
+      clientData.authorityLinksNow,
+      competitorData
+    );
+    
+    const costEfficiency = this.calculateCostEfficiency(
+      clientData.costPerLink,
+      clientData.monthlySpend
+    );
+    
+    // Bonus/penalty modifiers
+    const diversityBonus = this.calculateDiversityBonus(
+      clientData.authorityDomains || 0, 
+      clientData.authorityLinksNow
+    );
+    
+    const qualityBonus = this.calculateQualityProgression(
+      clientData.recentLinksQuality || 0
+    );
+    
+    const gapPenalty = this.calculateGapPenalty(
+      clientData.authorityLinksNow, 
+      competitorData
+    );
+    
+    const timePenalty = this.calculateTimePenalty(
+      clientData.campaignMonths,
+      clientData.authorityLinksGained / Math.max(1, clientData.authorityLinksExpected)
+    );
+    
+    // Final score calculation
+    const baseScore = competitivePosition + performanceVsExpected + 
+                     velocityComparison + marketShareGrowth + costEfficiency;
+                     
+    const modifiers = diversityBonus + qualityBonus + gapPenalty + timePenalty;
+    
+    const finalScore = Math.max(1, Math.min(100, baseScore + modifiers));
+    
+    // Debug logging for comprehensive LinkScore calculation
+    console.log('🔍 COMPREHENSIVE LINKSCORE CALCULATION:');
+    console.log(`  Competitive Position: ${competitivePosition}/30`);
+    console.log(`  Performance vs Expected: ${performanceVsExpected}/25`);
+    console.log(`  Velocity Comparison: ${velocityComparison}/20`);
+    console.log(`  Market Share Growth: ${marketShareGrowth}/15`);
+    console.log(`  Cost Efficiency: ${costEfficiency}/10`);
+    console.log(`  Modifiers: ${modifiers} (diversity: ${diversityBonus}, quality: ${qualityBonus}, gap: ${gapPenalty}, time: ${timePenalty})`);
+    console.log(`  Base Score: ${baseScore}/100`);
+    console.log(`  FINAL SCORE: ${finalScore}/100`);
+    
+    const breakdown = {
+      competitivePosition,
+      performanceVsExpected,
+      velocityComparison,
+      marketShareGrowth,
+      costEfficiency,
+      modifiers
+    };
+    
+    const interpretation = this.interpretScore(finalScore);
+    
+    return {
+      overall: Math.round(finalScore * 10) / 10,
+      breakdown,
+      interpretation
+    };
+  }
+
+  /**
+   * Component 1: Current Competitive Position (30 points)
+   */
+  private calculateCompetitivePosition(clientLinks: number, competitorData: CompetitorMetrics[]): number {
+    if (competitorData.length === 0) return 15; // Neutral if no competitors
+    
+    const competitorAverage = competitorData.reduce((sum, comp) => 
+      sum + comp.authorityLinksNow, 0) / competitorData.length;
+    
+    const competitiveRatio = clientLinks / competitorAverage;
+    
+    // Scoring scale
+    if (competitiveRatio >= 1.0) return 30;    // At or above average
+    if (competitiveRatio >= 0.8) return 25;    // 80-99% of average
+    if (competitiveRatio >= 0.6) return 20;    // 60-79% of average
+    if (competitiveRatio >= 0.4) return 15;    // 40-59% of average
+    if (competitiveRatio >= 0.2) return 10;    // 20-39% of average
+    return 5;                                  // Below 20% of average
+  }
+
+  /**
+   * Component 2: Link Building Performance vs Expected (25 points)
+   */
+  private calculatePerformanceVsExpected(gained: number, expected: number): number {
+    if (expected === 0) return 12; // Neutral if no expected baseline
+    
+    const performanceRatio = gained / expected;
+    
+    // Scoring scale with caps for over-performance
+    if (performanceRatio >= 1.2) return 25;    // 120%+ performance
+    if (performanceRatio >= 1.0) return 23;    // 100-119% performance
+    if (performanceRatio >= 0.8) return 20;    // 80-99% performance
+    if (performanceRatio >= 0.6) return 15;    // 60-79% performance
+    if (performanceRatio >= 0.4) return 10;    // 40-59% performance
+    if (performanceRatio >= 0.2) return 5;     // 20-39% performance
+    return 1;                                  // Below 20% performance
+  }
+
+  /**
+   * Component 3: Competitive Link Building Velocity (20 points)
+   */
+  private calculateVelocityComparison(clientVelocity: number, competitorData: CompetitorMetrics[]): number {
+    if (competitorData.length === 0) return 10; // Neutral if no competitors
+    
+    const competitorVelocityAverage = competitorData.reduce((sum, comp) => 
+      sum + comp.linkVelocity, 0) / competitorData.length;
+    
+    if (competitorVelocityAverage === 0) return 10; // Neutral if no competitor velocity data
+    
+    const velocityRatio = clientVelocity / competitorVelocityAverage;
+    
+    // Scoring scale
+    if (velocityRatio >= 1.2) return 20;      // 120%+ of competitor velocity
+    if (velocityRatio >= 1.0) return 18;      // 100-119% of competitor velocity
+    if (velocityRatio >= 0.8) return 15;      // 80-99% of competitor velocity
+    if (velocityRatio >= 0.6) return 12;      // 60-79% of competitor velocity
+    if (velocityRatio >= 0.4) return 8;       // 40-59% of competitor velocity
+    if (velocityRatio >= 0.2) return 4;       // 20-39% of competitor velocity
+    return 1;                                 // Below 20% of competitor velocity
+  }
+
+  /**
+   * Component 4: Market Share Growth/Decline (15 points)
+   */
+  private calculateMarketShareGrowth(
+    clientStart: number, 
+    clientNow: number, 
+    competitorData: CompetitorMetrics[]
+  ): number {
+    if (competitorData.length === 0) return 8; // Neutral if no competitors
+    
+    // Calculate market share at start and now
+    const totalLinksStart = clientStart + competitorData.reduce((sum, comp) => 
+      sum + comp.authorityLinksStart, 0);
+    const totalLinksNow = clientNow + competitorData.reduce((sum, comp) => 
+      sum + comp.authorityLinksNow, 0);
+    
+    if (totalLinksStart === 0 || totalLinksNow === 0) return 8; // Neutral if no data
+    
+    const marketShareStart = clientStart / totalLinksStart;
+    const marketShareNow = clientNow / totalLinksNow;
+    const marketShareChange = marketShareNow - marketShareStart;
+    
+    // Scoring based on market share change
+    if (marketShareChange >= 0.02) return 15;    // Gained 2%+ market share
+    if (marketShareChange >= 0.01) return 13;    // Gained 1-2% market share
+    if (marketShareChange >= 0.005) return 11;   // Gained 0.5-1% market share
+    if (marketShareChange >= 0) return 8;        // Maintained market share
+    if (marketShareChange >= -0.005) return 5;   // Lost <0.5% market share
+    if (marketShareChange >= -0.01) return 3;    // Lost 0.5-1% market share
+    return 1;                                    // Lost >1% market share
+  }
+
+  /**
+   * Component 5: Cost Efficiency vs Market (10 points)
+   */
+  private calculateCostEfficiency(costPerLink: number, monthlySpend: number): number {
+    // Expected cost per authority link based on spend
+    const expectedCostPerLink = (monthlySpend / 1000) * 667; // $667 per $1k spend baseline
+    
+    if (costPerLink === 0 || expectedCostPerLink === 0) return 5; // Neutral if no cost data
+    
+    const efficiencyRatio = expectedCostPerLink / costPerLink;
+    
+    // Scoring scale
+    if (efficiencyRatio >= 1.5) return 10;      // 50%+ better than expected
+    if (efficiencyRatio >= 1.2) return 9;       // 20-49% better than expected
+    if (efficiencyRatio >= 1.0) return 8;       // Meeting expected efficiency
+    if (efficiencyRatio >= 0.8) return 6;       // 20% worse than expected
+    if (efficiencyRatio >= 0.6) return 4;       // 40% worse than expected
+    if (efficiencyRatio >= 0.4) return 2;       // 60% worse than expected
+    return 1;                                   // >60% worse than expected
+  }
+
+  /**
+   * Bonus: Authority Domain Diversity (0-3 points)
+   */
+  private calculateDiversityBonus(authorityDomains: number, authorityLinks: number): number {
+    if (authorityDomains === 0 || authorityLinks === 0) return 0;
+    
+    const linkToDomainRatio = authorityLinks / authorityDomains;
+    
+    // Reward diverse link profiles (1-2 links per domain is ideal)
+    if (linkToDomainRatio <= 2.0) return 3;     // Excellent diversity
+    if (linkToDomainRatio <= 3.0) return 1;     // Good diversity
+    return 0;                                   // Poor diversity
+  }
+
+  /**
+   * Bonus: Link Quality Progression (0-3 points)
+   */
+  private calculateQualityProgression(recentLinksQuality: number): number {
+    // Check if newer links have higher average domain rank
+    if (recentLinksQuality >= 40) return 3;     // High-quality recent links
+    if (recentLinksQuality >= 30) return 1;     // Medium-quality recent links
+    return 0;                                   // Low-quality recent links
+  }
+
+  /**
+   * Penalty: Competitive Gap (-5 to 0 points)
+   */
+  private calculateGapPenalty(clientLinks: number, competitorData: CompetitorMetrics[]): number {
+    if (competitorData.length === 0) return 0;
+    
+    const averageGap = competitorData.reduce((sum, comp) => 
+      sum + comp.gapToClient, 0) / competitorData.length;
+    
+    if (clientLinks === 0) return -5; // Maximum penalty if no links
+    
+    const gapRatio = averageGap / clientLinks;
+    
+    // Penalize massive gaps
+    if (gapRatio >= 3.0) return -5;            // 3x+ behind competitors
+    if (gapRatio >= 2.0) return -3;            // 2x+ behind competitors  
+    if (gapRatio >= 1.5) return -1;            // 1.5x+ behind competitors
+    return 0;                                  // Competitive position
+  }
+
+  /**
+   * Penalty: Investment Time vs Performance (-5 to 0 points)
+   */
+  private calculateTimePenalty(monthsInvested: number, performanceRatio: number): number {
+    // Penalize long campaigns with poor results
+    if (monthsInvested >= 18 && performanceRatio < 0.3) return -5;
+    if (monthsInvested >= 12 && performanceRatio < 0.4) return -3;
+    if (monthsInvested >= 6 && performanceRatio < 0.3) return -2;
+    return 0;
+  }
+
+  /**
+   * Interpret the final score and provide contextual information
+   */
+  private interpretScore(score: number): LinkScoreResult['interpretation'] {
+    if (score >= 90) {
+      return {
+        grade: 'A+',
+        label: 'Exceptional',
+        message: 'Outstanding performance - you\'re outperforming all competitors with exceptional ROI.',
+        urgency: 'LOW'
+      };
+    } else if (score >= 80) {
+      return {
+        grade: 'A',
+        label: 'Excellent',
+        message: 'Excellent performance - strong competitive position with great value for investment.',
+        urgency: 'LOW'
+      };
+    } else if (score >= 70) {
+      return {
+        grade: 'B',
+        label: 'Good',
+        message: 'Good performance - above average results with solid competitive positioning.',
+        urgency: 'LOW'
+      };
+    } else if (score >= 60) {
+      return {
+        grade: 'C',
+        label: 'Average',
+        message: 'Average performance - meeting basic expectations but room for improvement.',
+        urgency: 'MEDIUM'
+      };
+    } else if (score >= 50) {
+      return {
+        grade: 'D',
+        label: 'Below Average',
+        message: 'Below average performance - underperforming investment with competitive gaps.',
+        urgency: 'MEDIUM'
+      };
+    } else if (score >= 40) {
+      return {
+        grade: 'D-',
+        label: 'Poor',
+        message: 'Poor performance - significant issues detected requiring immediate attention.',
+        urgency: 'HIGH'
+      };
+    } else if (score >= 30) {
+      return {
+        grade: 'F+',
+        label: 'Critical',
+        message: 'Critical issues - major strategic problems requiring complete overhaul.',
+        urgency: 'CRITICAL'
+      };
+    } else {
+      return {
+        grade: 'F',
+        label: 'Failure',
+        message: 'Complete failure - your SEO investment is not delivering any meaningful results.',
+        urgency: 'CRITICAL'
+      };
+    }
+  }
+
+  // Legacy compatibility methods - adapt existing data to new format
+  calculateLinkScoreLegacy(
     performanceData: PerformanceData,
     competitiveData: CompetitiveData,
     linkGapData: LinkGapResult[]
   ): LinkScoreResult {
     
-    // Performance Score (40% weight)
-    const performanceScore = this.calculatePerformanceScore(
-      performanceData.authorityLinksGained,
-      performanceData.expectedLinks
-    );
-    
-    // Competitive Score (35% weight)
-    const competitiveScore = this.calculateCompetitiveScore(
-      competitiveData.clientAuthorityLinks,
-      competitiveData.averageCompetitorLinks
-    );
-    
-    // Opportunity Score (25% weight)
-    const opportunityScore = this.calculateOpportunityScore(linkGapData.length);
-    
-    // Final weighted score
-    const finalScore = (performanceScore * 0.40) + (competitiveScore * 0.35) + (opportunityScore * 0.25);
-    
-    return {
-      overall: Math.round(finalScore * 10) / 10,
-      performance: performanceScore,
-      competitive: competitiveScore,
-      opportunity: opportunityScore
+    // Convert legacy data to new format
+    const clientData: ClientMetrics = {
+      authorityLinksStart: performanceData.currentAuthorityLinks - performanceData.authorityLinksGained,
+      authorityLinksNow: performanceData.currentAuthorityLinks,
+      authorityLinksGained: performanceData.authorityLinksGained,
+      authorityLinksExpected: performanceData.expectedLinks,
+      monthlySpend: 0, // Will be set by caller
+      campaignMonths: performanceData.campaignDuration,
+      totalInvestment: 0, // Will be set by caller
+      costPerLink: performanceData.costPerAuthorityLink,
+      linkVelocity: performanceData.authorityLinksGained / Math.max(1, performanceData.campaignDuration)
     };
-  }
-
-  private calculatePerformanceScore(actual: number, expected: number): number {
-    if (expected === 0) return 5; // Neutral score if no expected baseline
     
-    const percentage = (actual / expected) * 100;
-    if (percentage >= 80) return 10;
-    if (percentage >= 60) return 8;
-    if (percentage >= 40) return 6;
-    if (percentage >= 20) return 4;
-    return 2;
-  }
-
-  private calculateCompetitiveScore(clientLinks: number, competitorAverage: number): number {
-    if (competitorAverage === 0) return 5; // Neutral if no competitors
+    // Create simplified competitor data
+    const competitorData: CompetitorMetrics[] = [];
+    if (competitiveData.averageCompetitorLinks > 0) {
+      // Create a representative competitor entry
+      competitorData.push({
+        domain: 'average_competitor',
+        authorityLinksStart: Math.round(competitiveData.averageCompetitorLinks * 0.8), // Estimate
+        authorityLinksNow: competitiveData.averageCompetitorLinks,
+        authorityLinksGained: Math.round(competitiveData.averageCompetitorLinks * 0.2), // Estimate
+        gapToClient: competitiveData.averageCompetitorLinks - competitiveData.clientAuthorityLinks,
+        linkVelocity: Math.round(competitiveData.averageCompetitorLinks * 0.2) / Math.max(1, performanceData.campaignDuration)
+      });
+    }
     
-    const ratio = clientLinks / competitorAverage;
-    if (ratio >= 0.8) return 10;
-    if (ratio >= 0.6) return 8;
-    if (ratio >= 0.4) return 6;
-    if (ratio >= 0.2) return 4;
-    return 2;
+    return this.calculateLinkScore(clientData, competitorData);
   }
 
-  private calculateOpportunityScore(totalGaps: number): number {
-    // Inverse scoring - fewer gaps = better score
-    if (totalGaps <= 10) return 10;
-    if (totalGaps <= 25) return 8;
-    if (totalGaps <= 50) return 6;
-    if (totalGaps <= 100) return 4;
-    return 2;
-  }
-
-  // Calculate expected authority links based on investment DURING the campaign period
+  // Calculate expected authority links based on investment
   calculateExpectedLinks(monthlySpend: number, investmentMonths: number): number {
     // Industry benchmark: ~$667 per authority link
     const costPerLink = 667;
@@ -333,15 +669,15 @@ class LinkScoreCalculator {
     else priorityScore += 10;
     
     // Performance crisis (40 points max)
-    if (linkScore.overall <= 3) priorityScore += 40;
-    else if (linkScore.overall <= 4) priorityScore += 30;
-    else if (linkScore.overall <= 5) priorityScore += 20;
-    else if (linkScore.overall <= 6) priorityScore += 10;
+    if (linkScore.overall <= 30) priorityScore += 40;
+    else if (linkScore.overall <= 40) priorityScore += 30;
+    else if (linkScore.overall <= 50) priorityScore += 20;
+    else if (linkScore.overall <= 60) priorityScore += 10;
     
     // Time + money wasted (15 points max)
-    if (investmentData.investmentMonths >= 18 && linkScore.overall <= 4) priorityScore += 15;
-    else if (investmentData.investmentMonths >= 12 && linkScore.overall <= 5) priorityScore += 10;
-    else if (investmentData.investmentMonths >= 6 && linkScore.overall <= 4) priorityScore += 8;
+    if (investmentData.investmentMonths >= 18 && linkScore.overall <= 40) priorityScore += 15;
+    else if (investmentData.investmentMonths >= 12 && linkScore.overall <= 50) priorityScore += 10;
+    else if (investmentData.investmentMonths >= 6 && linkScore.overall <= 40) priorityScore += 8;
     
     // Critical red flags (15 points max)
     const criticalFlags = redFlags.filter(flag => flag.severity === 'CRITICAL');
@@ -357,9 +693,9 @@ class LinkScoreCalculator {
     else potentialScore += 10;
     
     // Business success indicators (30 points max)
-    if (linkScore.overall >= 8) potentialScore += 30; // Successful business
-    else if (linkScore.overall >= 6) potentialScore += 20; // Growing business
-    else if (linkScore.overall >= 4) potentialScore += 10; // Potential business
+    if (linkScore.overall >= 80) potentialScore += 30; // Successful business
+    else if (linkScore.overall >= 60) potentialScore += 20; // Growing business
+    else if (linkScore.overall >= 40) potentialScore += 10; // Potential business
     
     // Market position (20 points max)
     if (competitiveData.averageCompetitorLinks > 0) {
@@ -385,24 +721,26 @@ class LinkScoreCalculator {
   // Determine lead type based on scores
   getLeadType(leadScore: LeadScore, linkScore: LinkScoreResult): string {
     if (leadScore.priority >= 70) return 'PRIORITY';
-    if (linkScore.overall >= 8) return 'POTENTIAL';
+    if (linkScore.overall >= 80) return 'POTENTIAL';
     return 'NURTURE';
   }
 
   // Determine urgency level
   getUrgency(linkScore: number, priorityScore: number): string {
-    if (linkScore <= 4 || priorityScore >= 70) return 'HIGH';
-    if (linkScore <= 6 || priorityScore >= 50) return 'MEDIUM';
+    if (linkScore <= 40 || priorityScore >= 70) return 'HIGH';
+    if (linkScore <= 60 || priorityScore >= 50) return 'MEDIUM';
     return 'LOW';
   }
 }
 
 export { LinkScoreCalculator };
 export type {
+  ClientMetrics,
+  CompetitorMetrics,
+  LinkScoreResult,
   PerformanceData,
   CompetitiveData,
   InvestmentData,
-  LinkScoreResult,
   RedFlag,
   LeadScore
 }; 

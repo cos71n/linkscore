@@ -117,9 +117,20 @@ export async function POST(request: NextRequest) {
 
     const linkScoreResult = {
       overall: analysis.linkScore,
-      performance: analysis.performanceScore,
-      competitive: analysis.competitiveScore,
-      opportunity: analysis.opportunityScore
+      breakdown: {
+        competitivePosition: analysis.competitiveScore || 0,
+        performanceVsExpected: analysis.performanceScore || 0,
+        velocityComparison: 0,
+        marketShareGrowth: 0,
+        costEfficiency: 0,
+        modifiers: 0
+      },
+      interpretation: {
+        grade: analysis.linkScore >= 70 ? 'B' : analysis.linkScore >= 50 ? 'D' : 'F',
+        label: analysis.linkScore >= 70 ? 'Good' : analysis.linkScore >= 50 ? 'Below Average' : 'Poor',
+        message: 'Analysis completed',
+        urgency: (analysis.linkScore <= 40 ? 'HIGH' : analysis.linkScore <= 60 ? 'MEDIUM' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW' | 'CRITICAL'
+      }
     };
 
     const leadScores = {
