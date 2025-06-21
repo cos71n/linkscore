@@ -655,6 +655,102 @@ class AnalysisEngine {
         completedAt: new Date()
       }
     });
+
+    // Trigger Zapier webhook after successful analysis completion
+    await this.triggerZapierWebhook(analysisId);
+  }
+
+  private async triggerZapierWebhook(analysisId: string, maxRetries: number = 3) {
+    const zapierWebhookUrl = process.env.ZAPIER_WEBHOOK_URL || process.env.CRM_WEBHOOK_URL;
+    
+    if (!zapierWebhookUrl) {
+      console.log('No Zapier webhook URL configured - skipping webhook notification');
+      return;
+    }
+
+    console.log(`🔗 Triggering Zapier webhook for analysis ${analysisId}`);
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Use AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002'}/api/webhook`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'LinkScore/1.0',
+            'X-Webhook-Source': 'LinkScore-AutoTrigger',
+            'X-Analysis-ID': analysisId
+          },
+          body: JSON.stringify({
+            analysisId,
+            trigger: 'analysis_completed',
+            timestamp: new Date().toISOString()
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Zapier webhook delivered successfully for analysis ${analysisId}`);
+          console.log(`📊 Webhook payload sent - LinkScore: ${result.payload?.results?.linkScore}`);
+          
+          // Log webhook success for monitoring
+          await this.logWebhookEvent(analysisId, 'SUCCESS', `Delivered on attempt ${attempt}`);
+          return;
+        } else {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          console.warn(`⚠️ Zapier webhook failed (attempt ${attempt}/${maxRetries}) - Status: ${response.status}, Error: ${errorText}`);
+          
+          if (attempt === maxRetries) {
+            await this.logWebhookEvent(analysisId, 'FAILED', `All ${maxRetries} attempts failed - Status: ${response.status}`);
+          }
+        }
+      } catch (error: any) {
+        console.error(`❌ Zapier webhook error (attempt ${attempt}/${maxRetries}):`, error.message);
+        
+        if (attempt === maxRetries) {
+          await this.logWebhookEvent(analysisId, 'ERROR', `Network error after ${maxRetries} attempts: ${error.message}`);
+        }
+      }
+
+      // Wait before retry (exponential backoff)
+      if (attempt < maxRetries) {
+        const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
+        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+
+  private async logWebhookEvent(analysisId: string, status: 'SUCCESS' | 'FAILED' | 'ERROR', details: string) {
+    try {
+      // Get current analysis to append webhook log
+      const currentAnalysis = await prisma.analysis.findUnique({
+        where: { id: analysisId },
+        select: { errorMessage: true }
+      });
+
+      const webhookLog = `[WEBHOOK_${status}] ${details}`;
+      const updatedErrorMessage = currentAnalysis?.errorMessage ? 
+        `${currentAnalysis.errorMessage}\n${webhookLog}` : 
+        webhookLog;
+
+      await prisma.analysis.update({
+        where: { id: analysisId },
+        data: {
+          errorMessage: updatedErrorMessage
+        }
+      });
+      
+      console.log(`📝 Webhook event logged for analysis ${analysisId}: ${status} - ${details}`);
+    } catch (error) {
+      console.warn(`Failed to log webhook event for analysis ${analysisId}:`, error);
+    }
   }
 
   private async updateAnalysisProgress(analysisId: string, progress: AnalysisProgress) {

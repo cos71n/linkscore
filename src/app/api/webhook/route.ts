@@ -223,27 +223,71 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // Send to configured webhook URL (if any)
-    const webhookUrl = process.env.CRM_WEBHOOK_URL;
-    if (webhookUrl) {
+    // Send to configured webhook URLs (CRM and/or Zapier)
+    const webhookUrls = [
+      process.env.CRM_WEBHOOK_URL,
+      process.env.ZAPIER_WEBHOOK_URL
+    ].filter((url): url is string => Boolean(url));
+
+    const webhookResults = [];
+
+    for (const webhookUrl of webhookUrls) {
       try {
+        const isZapier = webhookUrl.includes('zapier.com') || webhookUrl.includes('hooks.zapier.com');
+        
+        // Use AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
         const response = await fetch(webhookUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'User-Agent': 'LinkScore/1.0',
-            'X-Webhook-Source': 'LinkScore'
+            'X-Webhook-Source': 'LinkScore',
+            'X-Analysis-ID': analysis.id,
+            ...(isZapier && {
+              'X-Zapier-Trigger': 'analysis_completed',
+              'Accept': 'application/json'
+            })
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-          console.error('Webhook delivery failed:', response.status, response.statusText);
+          const errorText = await response.text().catch(() => 'Unknown error');
+          console.error(`Webhook delivery failed to ${isZapier ? 'Zapier' : 'CRM'}:`, response.status, response.statusText, errorText);
+          webhookResults.push({ 
+            url: webhookUrl, 
+            type: isZapier ? 'Zapier' : 'CRM',
+            success: false, 
+            status: response.status, 
+            error: errorText 
+          });
         } else {
-          console.log('Webhook delivered successfully to CRM');
+          console.log(`✅ Webhook delivered successfully to ${isZapier ? 'Zapier' : 'CRM'}`);
+          if (isZapier) {
+            console.log(`🔗 Zapier will now process LinkScore ${analysis.linkScore}/100 for ${analysis.user.domain}`);
+          }
+          webhookResults.push({ 
+            url: webhookUrl, 
+            type: isZapier ? 'Zapier' : 'CRM',
+            success: true, 
+            status: response.status 
+          });
         }
-      } catch (error) {
-        console.error('Webhook delivery error:', error);
+      } catch (error: any) {
+        const isZapier = webhookUrl.includes('zapier.com') || webhookUrl.includes('hooks.zapier.com');
+        console.error(`Webhook delivery error to ${isZapier ? 'Zapier' : 'CRM'}:`, error.message);
+        webhookResults.push({ 
+          url: webhookUrl, 
+          type: isZapier ? 'Zapier' : 'CRM',
+          success: false, 
+          error: error.message 
+        });
       }
     }
 
@@ -251,7 +295,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Webhook payload generated',
-      delivered: !!webhookUrl,
+      delivered: webhookUrls.length > 0,
+      webhookResults,
       payload
     });
 
