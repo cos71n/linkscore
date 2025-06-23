@@ -321,7 +321,7 @@ class RobustAPIClient {
     };
   }
 
-  async getCompetitors(keywords: string[], location: string): Promise<string[]> {
+  async getCompetitors(keywords: string[], location: string, excludeDomain?: string): Promise<string[]> {
     const locationConfig = AUSTRALIAN_LOCATIONS[location as keyof typeof AUSTRALIAN_LOCATIONS] || 
                           AUSTRALIAN_LOCATIONS.australia_general;
     const competitors = new Set<string>();
@@ -330,7 +330,7 @@ class RobustAPIClient {
     console.log(`🔍 Searching keywords: [${keywords.join(', ')}]`);
     
     // Add overall timeout for Vercel (45 seconds max)
-    const competitorSearchPromise = this.doCompetitorSearch(keywords, locationConfig, competitors);
+    const competitorSearchPromise = this.doCompetitorSearch(keywords, locationConfig, competitors, excludeDomain);
     const timeoutPromise = new Promise<string[]>((_, reject) => {
       setTimeout(() => {
         reject(new Error('Competitor search timeout after 45 seconds'));
@@ -341,12 +341,12 @@ class RobustAPIClient {
       return await Promise.race([competitorSearchPromise, timeoutPromise]);
     } catch (error: any) {
       console.error('Competitor search failed:', error.message);
-      // Return fallback competitors if search fails
-      return this.getFallbackCompetitors(location);
+      // Return fallback competitors if search fails (also filter out client domain)
+      return this.getFallbackCompetitors(location, excludeDomain);
     }
   }
 
-  private async doCompetitorSearch(keywords: string[], locationConfig: any, competitors: Set<string>): Promise<string[]> {
+  private async doCompetitorSearch(keywords: string[], locationConfig: any, competitors: Set<string>, excludeDomain?: string): Promise<string[]> {
     
     // Use original keywords with location + Google Australia
     // Process fewer keywords on Vercel for faster execution
@@ -402,11 +402,17 @@ class RobustAPIClient {
           console.log(`  📍 Position ${position}: ${domain} (${geography})`);
         });
         
-        // Add Australian domains to competitors
+        // Add Australian domains to competitors (exclude client's own domain)
         organicDomains.forEach(({ domain }: { domain: string }) => {
           const isAustralian = domain.endsWith('.com.au') || 
                               domain.endsWith('.au') ||
                               ['bunnings.com', 'stratco.com'].includes(domain); // Known AU companies
+          
+          // Skip if this is the client's own domain
+          if (excludeDomain && domain === excludeDomain) {
+            console.log(`🚫 Skipping client domain: ${domain} (can't be competitor to itself)`);
+            return;
+          }
           
           if (isAustralian) {
             competitors.add(domain);
@@ -498,17 +504,23 @@ class RobustAPIClient {
       .sort((a: LinkGapResult, b: LinkGapResult) => b.rank - a.rank); // Sort by domain rank
   }
 
-  private getFallbackCompetitors(location: string): string[] {
+  private getFallbackCompetitors(location: string, excludeDomain?: string): string[] {
     console.log(`🔄 Using fallback competitors for ${location} due to search timeout/failure`);
     
     // Generic Australian business competitors as fallback
-    const fallbackCompetitors = [
+    let fallbackCompetitors = [
       'yellowpages.com.au',
       'seek.com.au', 
       'realestate.com.au',
       'carsales.com.au',
       'gumtree.com.au'
     ];
+    
+    // Filter out client domain if provided
+    if (excludeDomain) {
+      fallbackCompetitors = fallbackCompetitors.filter(domain => domain !== excludeDomain);
+      console.log(`🚫 Filtered out client domain ${excludeDomain} from fallback competitors`);
+    }
     
     console.log(`🏆 Fallback competitors: [${fallbackCompetitors.join(', ')}]`);
     return fallbackCompetitors;

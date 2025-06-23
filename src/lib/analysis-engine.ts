@@ -385,7 +385,7 @@ class AnalysisEngine {
     
     let competitors: string[];
     try {
-      competitors = await this.apiClient.getCompetitors(formData.keywords, formData.location);
+      competitors = await this.apiClient.getCompetitors(formData.keywords, formData.location, formData.domain);
     } catch (error: any) {
       console.warn('Competitor search failed, using fallback approach:', error.message);
       
