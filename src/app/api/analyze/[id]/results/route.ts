@@ -62,9 +62,11 @@ export async function GET(
         
         if (competitors.length === 0) return 8; // Neutral if no competitors
       
-      // Client data
-      const clientStart = analysis.currentAuthorityLinks - analysis.authorityLinksGained;
-      const clientNow = analysis.currentAuthorityLinks;
+      // Client data (with null safety)
+      const currentLinks = analysis.currentAuthorityLinks || 0;
+      const linksGained = analysis.authorityLinksGained || 0;
+      const clientStart = currentLinks - linksGained;
+      const clientNow = currentLinks;
       
       // Calculate total market at start and now
       let totalLinksStart = clientStart;
@@ -112,7 +114,11 @@ export async function GET(
         const expectedCostPerLink = (analysis.monthlySpend / 1000) * 667; // $667 per $1k spend baseline
         const actualCostPerLink = analysis.costPerAuthorityLink;
       
-      if (actualCostPerLink === 0 || expectedCostPerLink === 0) return 5;
+      // Handle null or undefined values properly
+      if (!actualCostPerLink || actualCostPerLink === 0 || expectedCostPerLink === 0) {
+        console.log('⚠️ Cost per link data unavailable, returning default score');
+        return 5;
+      }
       
       const efficiencyRatio = expectedCostPerLink / actualCostPerLink;
       
@@ -136,8 +142,9 @@ export async function GET(
 
     // Prepare comprehensive results response with new 100-point scale and detailed breakdown
     console.log('🔧 Building results response...');
+    const overallScore = analysis.linkScore || 0;
     const linkScoreResult = {
-      overall: analysis.linkScore.toString(),
+      overall: overallScore.toString(),
       breakdown: {
         competitivePosition: analysis.competitiveScore || 0, // Out of 30
         performanceVsExpected: analysis.performanceScore || 0, // Out of 25  
@@ -147,31 +154,31 @@ export async function GET(
         modifiers: 0 // Bonus/penalty points
       },
       interpretation: {
-        grade: getPerformanceGrade(analysis.linkScore),
-        label: analysis.linkScore >= 90 ? 'Exceptional' :
-               analysis.linkScore >= 80 ? 'Excellent' :
-               analysis.linkScore >= 70 ? 'Good' :
-               analysis.linkScore >= 60 ? 'Average' :
-               analysis.linkScore >= 50 ? 'Below Average' :
-               analysis.linkScore >= 40 ? 'Poor' :
-               analysis.linkScore >= 30 ? 'Critical' : 'Failure',
-        message: analysis.linkScore >= 80 ? 
+        grade: getPerformanceGrade(overallScore),
+        label: overallScore >= 90 ? 'Exceptional' :
+               overallScore >= 80 ? 'Excellent' :
+               overallScore >= 70 ? 'Good' :
+               overallScore >= 60 ? 'Average' :
+               overallScore >= 50 ? 'Below Average' :
+               overallScore >= 40 ? 'Poor' :
+               overallScore >= 30 ? 'Critical' : 'Failure',
+        message: overallScore >= 80 ? 
           "Outstanding performance - you're outperforming most competitors with excellent ROI." :
-          analysis.linkScore >= 60 ?
+          overallScore >= 60 ?
           "Solid performance with room for improvement. Your SEO is working but could be optimized." :
-          analysis.linkScore >= 40 ?
+          overallScore >= 40 ?
           "Below average performance indicates significant issues with your current SEO strategy." :
           "Critical performance failure. Your SEO investment requires immediate strategic overhaul.",
-        urgency: analysis.linkScore <= 40 ? 'CRITICAL' :
-                 analysis.linkScore <= 50 ? 'HIGH' :
-                 analysis.linkScore <= 70 ? 'MEDIUM' : 'LOW'
+        urgency: overallScore <= 40 ? 'CRITICAL' :
+                 overallScore <= 50 ? 'HIGH' :
+                 overallScore <= 70 ? 'MEDIUM' : 'LOW'
       }
     };
 
     const leadScores = {
-      priority: analysis.priorityScore,
-      potential: analysis.potentialScore,
-      overall: Math.round((analysis.priorityScore + analysis.potentialScore) / 2)
+      priority: analysis.priorityScore || 0,
+      potential: analysis.potentialScore || 0,
+      overall: Math.round(((analysis.priorityScore || 0) + (analysis.potentialScore || 0)) / 2)
     };
 
     // Determine result strategy based on new 100-point LinkScore
@@ -224,43 +231,45 @@ export async function GET(
       };
     };
 
-    const strategy = getResultStrategy(analysis.linkScore);
+    const strategy = getResultStrategy(overallScore);
     
     // Determine lead type based on priority score and LinkScore
     const leadType = leadScores.priority >= 70 ? 'PRIORITY' : 
-                     analysis.linkScore >= 80 ? 'POTENTIAL' : 'NURTURE';
+                     overallScore >= 80 ? 'POTENTIAL' : 'NURTURE';
     
     // Determine urgency based on LinkScore and priority score  
-    const urgency = (analysis.linkScore <= 40 || leadScores.priority >= 70) ? 'HIGH' :
-                    (analysis.linkScore <= 60 || leadScores.priority >= 50) ? 'MEDIUM' : 'LOW';
+    const urgency = (overallScore <= 40 || leadScores.priority >= 70) ? 'HIGH' :
+                    (overallScore <= 60 || leadScores.priority >= 50) ? 'MEDIUM' : 'LOW';
 
     // Calculate investment summary
     console.log('💰 Calculating investment summary...');
-    const totalInvestment = analysis.monthlySpend * analysis.investmentMonths;
-    console.log(`Expected links calculation: $${analysis.monthlySpend}/month × ${analysis.investmentMonths} months = $${totalInvestment} ÷ $667 = ${Math.round(totalInvestment / 667)} expected links gained`);
-    const expectedLinks = calculator.calculateExpectedLinks(analysis.monthlySpend, analysis.investmentMonths);
+    const monthlySpend = analysis.monthlySpend || 0;
+    const investmentMonths = analysis.investmentMonths || 0;
+    const totalInvestment = monthlySpend * investmentMonths;
+    console.log(`Expected links calculation: $${monthlySpend}/month × ${investmentMonths} months = $${totalInvestment} ÷ $667 = ${Math.round(totalInvestment / 667)} expected links gained`);
+    const expectedLinks = calculator.calculateExpectedLinks(monthlySpend, investmentMonths);
     console.log('✅ Investment summary calculated');
 
     const results = {
       // Analysis metadata
-      analysisId: analysis.id,
-      completedAt: analysis.completedAt,
-      processingTime: analysis.processingTimeSeconds,
+      analysisId: analysis.id || analysisId,
+      completedAt: analysis.completedAt || new Date(),
+      processingTime: analysis.processingTimeSeconds || 0,
       
       // User and campaign info
       user: {
-        domain: analysis.user.domain,
-        location: analysis.user.location,
-        company: analysis.user.companyName
+        domain: analysis.user?.domain || '',
+        location: analysis.user?.location || '',
+        company: analysis.user?.companyName || ''
       },
       
       campaign: {
-        monthlySpend: analysis.monthlySpend,
-        investmentMonths: analysis.investmentMonths,
+        monthlySpend: monthlySpend,
+        investmentMonths: investmentMonths,
         totalInvestment,
-        spendRange: analysis.spendRange,
-        durationRange: analysis.durationRange,
-        keywords: analysis.targetKeywords
+        spendRange: analysis.spendRange || '',
+        durationRange: analysis.durationRange || '',
+        keywords: analysis.targetKeywords || []
       },
       
       // LinkScore results
@@ -268,24 +277,24 @@ export async function GET(
       
       // Key metrics
       metrics: {
-        currentAuthorityLinks: analysis.currentAuthorityLinks,
-        authorityLinksGained: analysis.authorityLinksGained,
+        currentAuthorityLinks: analysis.currentAuthorityLinks || 0,
+        authorityLinksGained: analysis.authorityLinksGained || 0,
         expectedLinks,
-        competitorAverageLinks: analysis.competitorAverageLinks,
-        linkGapsTotal: analysis.linkGapsTotal,
-        linkGapsHighPriority: analysis.linkGapsHighPriority,
-        costPerAuthorityLink: analysis.costPerAuthorityLink
+        competitorAverageLinks: analysis.competitorAverageLinks || 0,
+        linkGapsTotal: analysis.linkGapsTotal || 0,
+        linkGapsHighPriority: analysis.linkGapsHighPriority || 0,
+        costPerAuthorityLink: analysis.costPerAuthorityLink || 0
       },
       
       // Competitive analysis
       competitive: {
-        competitors: analysis.competitors,
-        competitorAverageLinks: analysis.competitorAverageLinks,
-        gapPercentage: analysis.competitorAverageLinks > 0 
-          ? Math.round(((analysis.competitorAverageLinks - analysis.currentAuthorityLinks) / analysis.competitorAverageLinks) * 100)
+        competitors: analysis.competitors || [],
+        competitorAverageLinks: analysis.competitorAverageLinks || 0,
+        gapPercentage: (analysis.competitorAverageLinks || 0) > 0 
+          ? Math.round(((analysis.competitorAverageLinks - (analysis.currentAuthorityLinks || 0)) / analysis.competitorAverageLinks) * 100)
           : 0,
-        marketPosition: analysis.competitorAverageLinks > 0 
-          ? Math.round((analysis.currentAuthorityLinks / analysis.competitorAverageLinks) * 100)
+        marketPosition: (analysis.competitorAverageLinks || 0) > 0 
+          ? Math.round(((analysis.currentAuthorityLinks || 0) / analysis.competitorAverageLinks) * 100)
           : 100
       },
       
@@ -310,7 +319,7 @@ export async function GET(
       
       // Performance summary
       performance: {
-        grade: getPerformanceGrade(analysis.linkScore),
+        grade: getPerformanceGrade(overallScore),
         summary: getPerformanceSummary(analysis, strategy.type),
         recommendations: getRecommendations(analysis, strategy.type)
       }
