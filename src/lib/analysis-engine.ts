@@ -57,8 +57,10 @@ class AnalysisEngine {
   private calculator: LinkScoreCalculator;
 
   constructor() {
+    console.log('🔧 Initializing AnalysisEngine...');
     this.apiClient = new RobustAPIClient();
     this.calculator = new LinkScoreCalculator();
+    console.log('✅ AnalysisEngine initialized successfully');
   }
 
   async performAnalysis(formData: FormData, request: Request, existingAnalysisId?: string): Promise<AnalysisResult> {
@@ -66,10 +68,16 @@ class AnalysisEngine {
     let analysisId = existingAnalysisId;
     
     try {
+      console.log('🚀 performAnalysis started for analysis:', existingAnalysisId);
+      console.log('📋 Form data keys:', Object.keys(formData));
+      
       // Extract IP address from request with proper fallback
+      console.log('🌐 Extracting IP address...');
       const ipAddress = this.extractIPAddress(request);
+      console.log('✅ IP address extracted:', ipAddress);
       
       // Extract UserInput fields from FormData for validation
+      console.log('📝 Creating user input object...');
       const userInput: UserInput = {
         domain: formData.domain,
         email: formData.email,
@@ -81,24 +89,32 @@ class AnalysisEngine {
         durationRange: formData.durationRange,
         keywords: formData.keywords
       };
+      console.log('✅ User input object created');
       
       // Step 1: Validate and sanitize input
+      console.log('🔒 Starting input validation and sanitization...');
       const sanitizedData = await validateAndSanitizeInput(userInput, ipAddress);
+      console.log('✅ Input validation and sanitization complete');
       
       // Merge monthly spend and investment months into sanitized data
+      console.log('🔧 Merging sanitized data with form data...');
       const completeData: FormData = {
         ...sanitizedData,
         monthlySpend: formData.monthlySpend,
         investmentMonths: formData.investmentMonths
       };
+      console.log('✅ Data merge complete');
       
       // Step 2: Create user and analysis records (if not already created)
       let userId: string;
       if (!analysisId) {
+        console.log('💾 Creating new analysis records...');
         const records = await this.createAnalysisRecords(completeData, request);
         userId = records.userId;
         analysisId = records.analysisId;
+        console.log('✅ Analysis records created:', { userId, analysisId });
       } else {
+        console.log('🔍 Using existing analysis, fetching user ID...');
         // Get user ID from existing analysis
         const analysis = await prisma.analysis.findUnique({
           where: { id: analysisId },
@@ -108,14 +124,19 @@ class AnalysisEngine {
           throw new Error('Analysis not found');
         }
         userId = analysis.userId;
+        console.log('✅ User ID retrieved:', userId);
       }
       
       // Step 3: Perform the analysis with progress tracking
+      console.log('⚡ Starting analysis execution...');
       const result = await this.executeAnalysis(completeData, analysisId, userId);
+      console.log('✅ Analysis execution complete');
       
       // Step 4: Calculate processing time and finalize
+      console.log('🏁 Finalizing analysis...');
       const processingTime = Math.round((Date.now() - startTime) / 1000);
       await this.finalizeAnalysis(analysisId, result, processingTime);
+      console.log('✅ Analysis finalized in', processingTime, 'seconds');
       
       return {
         ...result,
@@ -123,11 +144,15 @@ class AnalysisEngine {
         processingTime
       };
       
-    } catch (error) {
-      console.error('Analysis failed:', error);
+    } catch (error: any) {
+      console.error('❌ Analysis failed with error:', error.name, error.message);
+      console.error('❌ Error stack:', error.stack);
+      console.error('❌ Analysis ID at failure:', analysisId);
       
       if (analysisId) {
+        console.log('🔧 Handling analysis error for ID:', analysisId);
         await this.handleAnalysisError(analysisId, error, formData);
+        console.log('✅ Analysis error handled');
       }
       
       throw error;
@@ -236,11 +261,16 @@ class AnalysisEngine {
   }
 
   private async executeAnalysis(formData: FormData, analysisId: string, userId: string): Promise<Omit<AnalysisResult, 'id' | 'processingTime'>> {
+    console.log('🎯 executeAnalysis started for:', { analysisId, userId, domain: formData.domain });
+    
     const progressCallback = (progress: AnalysisProgress) => {
+      console.log('📊 Progress update:', progress);
       this.updateAnalysisProgress(analysisId, progress);
     };
     
+    console.log('🗺️ Looking up location name for:', formData.location);
     const locationName = AUSTRALIAN_LOCATIONS[formData.location as keyof typeof AUSTRALIAN_LOCATIONS]?.name || formData.location;
+    console.log('✅ Location name resolved:', locationName);
     
     // Step 1: Find competitors
     progressCallback({ 
@@ -776,6 +806,8 @@ class AnalysisEngine {
 
   private async updateAnalysisProgress(analysisId: string, progress: AnalysisProgress) {
     // Enhanced logging with personalized data
+    console.log(`📈 updateAnalysisProgress called for ${analysisId}`);
+    console.log(`📊 Progress data:`, progress);
     console.log(`Analysis ${analysisId}: ${progress.message} (${progress.percentage}%)`);
     
     if (progress.data) {
@@ -792,14 +824,17 @@ class AnalysisEngine {
       timestamp: new Date().toISOString()
     };
     
+    console.log('💾 Updating database with progress data...');
     await prisma.analysis.update({
       where: { id: analysisId },
       data: {
         status: 'processing', // Keep status as 'processing' for proper retrieval
         errorMessage: JSON.stringify(progressData) // Store full progress data in errorMessage temporarily
       }
+    }).then(() => {
+      console.log('✅ Database progress update successful');
     }).catch(err => {
-      console.warn('Failed to update progress:', err);
+      console.error('❌ Failed to update analysis progress:', err);
     });
   }
 

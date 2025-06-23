@@ -548,6 +548,25 @@ Created comprehensive mobile-first UI component library:
 
 **Result**: Users now see detailed, personalized progress updates instead of generic "Processing..." loop
 
+### RESULTS ENDPOINT 500 ERROR DEBUG 🔍
+**🚨 New Issue**: After fixing progress tracking, analysis completes successfully but results page throws 500 error
+**Evidence**: 
+- Analysis ID 91c12082-fb91-46c9-8c08-5f60b231040b completed successfully with LinkScore 6/100 (confirmed in logs)
+- Webhook successfully delivered to Zapier  
+- `/api/analyze/[id]/results` endpoint returning 500 error for analysis ID d43e811a-316a-406f-8967-8c687b5ddf25
+- Frontend shows "Error fetching analysis: Failed to retrieve analysis results"
+
+**✅ Debug Measures Added**:
+1. **Comprehensive Error Logging**: Added detailed console logging with emojis for easy tracking
+2. **Step-by-Step Debugging**: Every major operation logged (database fetch, calculations, response building)
+3. **Error Boundaries**: Try-catch blocks around `calculateMarketShareGrowth()` and `calculateCostEfficiency()` functions
+4. **Enhanced Error Handling**: Specific error types (database, missing data, calculation errors) with detailed messages
+5. **Stack Trace Logging**: Full error details including stack traces for debugging
+
+**📋 Next Steps**: Deploy to Vercel and check function logs to identify exact failure point in results endpoint
+
+**Status**: 🔍 Ready for Vercel testing - comprehensive debugging in place
+
 ### ZAPIER WEBHOOK INTEGRATION COMPLETE ✅
 **🔗 Requirement**: Automatically push data to Zapier webhook every time a report is run
 **✅ Implementation Completed**:
