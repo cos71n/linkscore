@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { DomainInput, EmailInput, KeywordsInput } from '@/components/ui/form-inputs';
 import { LocationSelector } from '@/components/ui/location-selector';
@@ -918,8 +918,8 @@ function AnalysisProgressScreen({ progress, analysisId }: { progress: AnalysisPr
         </div>
       </div>
     </main>
-  );
-}
+      );
+  }
 
 // Add fadeIn animation to globals.css
 // @keyframes fadeIn {

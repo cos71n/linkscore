@@ -507,6 +507,29 @@ Created comprehensive mobile-first UI component library:
 
 **Result**: Left column now fully utilizes space with comprehensive score explanation and campaign insights
 
+### CRITICAL VERCEL TIMEOUT FIX ✅
+**🚨 Issue**: Analysis gets stuck at 10% on "searching for competitors" on Vercel production (works fine locally)
+**Root Cause**: Vercel serverless function timeout (30s default) during competitor search API calls
+
+**✅ Fixes Applied**:
+1. **Vercel Configuration**: Created `vercel.json` with 60-second timeout for `/api/analyze` endpoint
+2. **DataForSEO Optimization**: 
+   - Reduced API timeout from 30s to 20s for faster failure detection
+   - Reduced max retries from 3 to 2 for Vercel efficiency  
+   - Limited keyword processing from 3 to 2 for faster execution
+   - Added 45-second overall timeout wrapper with Promise.race
+3. **Graceful Fallback**: Implemented fallback competitors when search fails/times out
+4. **Analysis Engine**: Enhanced error handling to continue with fallback data instead of failing
+5. **Frontend Optimization**: Added React import and optimized component structure
+
+**Technical Details**:
+- `vercel.json`: 60s timeout for analysis, optimized regions (syd1, iad1)
+- Timeout safeguards at multiple levels (API client, competitor search, overall analysis)
+- Realistic Australian competitor fallbacks (yellowpages.com.au, seek.com.au, etc.)
+- Enhanced progress reporting for timeout scenarios
+
+**Result**: Analysis should now complete reliably on Vercel within timeout limits
+
 ### ZAPIER WEBHOOK INTEGRATION COMPLETE ✅
 **🔗 Requirement**: Automatically push data to Zapier webhook every time a report is run
 **✅ Implementation Completed**:

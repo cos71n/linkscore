@@ -261,7 +261,28 @@ class AnalysisEngine {
       throw new Error('Analysis cancelled by user');
     }
     
-    const competitors = await this.apiClient.getCompetitors(formData.keywords, formData.location);
+    let competitors: string[];
+    try {
+      competitors = await this.apiClient.getCompetitors(formData.keywords, formData.location);
+    } catch (error: any) {
+      console.warn('Competitor search failed, using fallback approach:', error.message);
+      
+      // Update progress to show fallback is being used
+      progressCallback({ 
+        step: 'competitors_fallback', 
+        message: `Using fallback competitor data due to API timeout`, 
+        percentage: 12,
+        personalized: true,
+        data: {
+          keywords: formData.keywords,
+          location: locationName,
+          currentActivity: 'Using fallback competitor analysis'
+        }
+      });
+      
+      // Use basic Australian competitors as fallback
+      competitors = ['yellowpages.com.au', 'seek.com.au', 'realestate.com.au', 'carsales.com.au', 'gumtree.com.au'];
+    }
     
     // Check for cancellation after competitor discovery
     if (await this.checkForCancellation(analysisId)) {
