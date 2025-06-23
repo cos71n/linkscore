@@ -1019,7 +1019,7 @@ export default function AnalysisResultsPage() {
                       <td className={`text-center py-4 px-4 font-medium ${
                         gapVsYou > 0 ? 'text-red-600' : 'text-green-600'
                       }`}>
-                        {gapVsYou > 0 ? `+${gapVsYou}` : gapVsYou} ahead
+                        {gapVsYou > 0 ? `+${gapVsYou} ahead` : `${Math.abs(gapVsYou)} behind`}
                       </td>
                     </tr>
                   );
