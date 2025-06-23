@@ -984,15 +984,21 @@ class AnalysisEngine {
     const { encrypted: emailEncrypted, hash: emailHash } = encryptEmail(userData.email);
     const phoneHash = userData.phone ? hashPhone(userData.phone) : null;
     
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { emailHash }
+    // FIX: Check if user already exists with BOTH email AND domain
+    // This prevents domain mixing when the same email is used for different domains
+    const existingUser = await prisma.user.findFirst({
+      where: { 
+        emailHash,
+        domain: userData.domain  // ← CRITICAL FIX: Also check domain
+      }
     });
     
     if (existingUser) {
+      console.log(`✅ Found existing user for email + domain: ${userData.domain}`);
       return existingUser;
     }
     
+    console.log(`🆕 Creating new user for: ${userData.domain}`);
     return await prisma.user.create({
       data: {
         emailEncrypted: emailEncrypted, // Already JSON stringified by encryptEmail
