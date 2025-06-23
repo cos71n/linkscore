@@ -906,12 +906,13 @@ class AnalysisEngine {
       isCancelled: false
     });
     
-    // Only write to database on major milestones (every 20% or important steps)
+    // Write to database for major milestones AND competitor results (for bespoke UX)
     const shouldUpdateDB = progress.percentage === 0 || 
                           progress.percentage >= 100 ||
                           progress.percentage % 20 === 0 ||
                           ['completed', 'failed', 'cancelled'].includes(progress.step) ||
-                          progress.step.includes('complete');
+                          progress.step.includes('complete') ||
+                          progress.step === 'competitor_result'; // Keep competitor results visible in UI
     
     if (shouldUpdateDB) {
       try {
