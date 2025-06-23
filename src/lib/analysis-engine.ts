@@ -67,9 +67,36 @@ class AnalysisEngine {
     const startTime = Date.now();
     let analysisId = existingAnalysisId;
     
+    // Add overall timeout to prevent infinite hanging
+    const ANALYSIS_TIMEOUT = 5 * 60 * 1000; // 5 minutes timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Analysis timeout after ${ANALYSIS_TIMEOUT / 1000} seconds`));
+      }, ANALYSIS_TIMEOUT);
+    });
+    
     try {
       console.log('🚀 performAnalysis started for analysis:', existingAnalysisId);
       console.log('📋 Form data keys:', Object.keys(formData));
+      console.log('⏰ Analysis timeout set for', ANALYSIS_TIMEOUT / 1000, 'seconds');
+      
+      // Check critical environment variables
+      console.log('🔍 Checking environment variables...');
+      const hasDataForSEO = !!(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD);
+      const hasDatabase = !!process.env.DATABASE_URL;
+      console.log('📊 Environment check:', { 
+        hasDataForSEO, 
+        hasDatabase,
+        nodeEnv: process.env.NODE_ENV 
+      });
+      
+      if (!hasDataForSEO) {
+        throw new Error('DataForSEO credentials not found in environment variables');
+      }
+      
+      if (!hasDatabase) {
+        throw new Error('Database URL not found in environment variables');
+      }
       
       // Extract IP address from request with proper fallback
       console.log('🌐 Extracting IP address...');
@@ -127,9 +154,22 @@ class AnalysisEngine {
         console.log('✅ User ID retrieved:', userId);
       }
       
-      // Step 3: Perform the analysis with progress tracking
+      // Step 3: Perform the analysis with progress tracking (with timeout)
       console.log('⚡ Starting analysis execution...');
-      const result = await this.executeAnalysis(completeData, analysisId, userId);
+      
+      // Update progress immediately to show the background process is running
+      await this.updateAnalysisProgress(analysisId, {
+        step: 'initialization',
+        message: 'Background analysis process started successfully',
+        percentage: 1,
+        personalized: true,
+        data: {
+          currentActivity: 'Initializing analysis engine'
+        }
+      });
+      
+      const analysisPromise = this.executeAnalysis(completeData, analysisId, userId);
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
       console.log('✅ Analysis execution complete');
       
       // Step 4: Calculate processing time and finalize
@@ -151,8 +191,25 @@ class AnalysisEngine {
       
       if (analysisId) {
         console.log('🔧 Handling analysis error for ID:', analysisId);
-        await this.handleAnalysisError(analysisId, error, formData);
-        console.log('✅ Analysis error handled');
+        try {
+          await this.handleAnalysisError(analysisId, error, formData);
+          console.log('✅ Analysis error handled successfully');
+        } catch (handleError) {
+          console.error('❌ Failed to handle analysis error:', handleError);
+          // Still try to update the analysis status to failed
+          try {
+            await prisma.analysis.update({
+              where: { id: analysisId },
+              data: {
+                status: 'failed',
+                errorMessage: error.message || 'Analysis failed unexpectedly'
+              }
+            });
+            console.log('✅ Analysis status updated to failed as fallback');
+          } catch (updateError) {
+            console.error('❌ Failed to update analysis status:', updateError);
+          }
+        }
       }
       
       throw error;

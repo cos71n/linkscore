@@ -70,9 +70,12 @@ export async function POST(request: NextRequest) {
     console.log('✅ Preliminary analysis created:', preliminaryResult.analysisId);
     
     // Start analysis asynchronously with the existing analysis ID
+    console.log('🚀 Starting background analysis for:', preliminaryResult.analysisId);
     analysisEngine.performAnalysis(formData, request, preliminaryResult.analysisId).catch(error => {
-      console.error('Background analysis failed:', error);
-      // The error handling is already done in the analysis engine
+      console.error('❌ Background analysis failed:', error);
+      console.error('❌ Background analysis error stack:', error.stack);
+      console.error('❌ Analysis ID that failed:', preliminaryResult.analysisId);
+      // The error handling is already done in the analysis engine, but let's add more logging
     });
     
     // Return immediately with analysis ID so frontend can show loading screen
