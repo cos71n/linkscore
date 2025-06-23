@@ -72,6 +72,7 @@ export default function AnalysisResultsPage() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
     const fetchResults = async () => {
@@ -176,6 +177,31 @@ export default function AnalysisResultsPage() {
     return 'LOW';
   };
 
+  const copyToClipboard = async () => {
+    try {
+      const url = window.location.href;
+      await navigator.clipboard.writeText(url);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = window.location.href;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed: ', fallbackErr);
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
   // Calculate authority links at start of campaign
   const authorityLinksAtStart = analysis.metrics.currentAuthorityLinks - analysis.metrics.authorityLinksGained;
   const authorityLinksNow = analysis.metrics.currentAuthorityLinks;
@@ -194,6 +220,53 @@ export default function AnalysisResultsPage() {
             Analysis for {analysis.user.domain} • Completed {new Date(analysis.completedAt).toLocaleDateString()}
           </p>
         </header>
+
+        {/* Share Results Copy Box */}
+        <div className="bg-white rounded-xl shadow-lg p-4 mb-8 border border-gray-200">
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                📋 Share Your Results
+              </h4>
+              <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={typeof window !== 'undefined' ? window.location.href : ''}
+                    readOnly
+                    className="w-full bg-transparent text-sm text-gray-700 border-none outline-none font-mono truncate"
+                    placeholder="Loading URL..."
+                  />
+                </div>
+                <button
+                  onClick={copyToClipboard}
+                  className={`flex-shrink-0 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+                    copySuccess
+                      ? 'bg-green-100 text-green-700 border border-green-200'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600'
+                  }`}
+                  disabled={copySuccess}
+                >
+                  {copySuccess ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Copied!
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Floating Navigation Menu */}
         <div className="fixed top-4 right-4 z-50">
