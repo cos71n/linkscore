@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import { AnalysisEngine, FormData } from '@/lib/analysis-engine';
 import { securityMiddleware } from '@/lib/security';
 
+// Force fresh deployment after schema changes
 export async function POST(request: NextRequest) {
   try {
     console.log('🚀 Analysis API called');
