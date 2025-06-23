@@ -52,6 +52,16 @@ interface AnalysisProgress {
   };
 }
 
+interface ProgressTracker {
+  analysisId: string;
+  lastUpdate: Date;
+  currentProgress: AnalysisProgress;
+  isCancelled: boolean;
+}
+
+// In-memory progress storage to reduce database calls
+const progressCache = new Map<string, ProgressTracker>();
+
 class AnalysisEngine {
   private apiClient: RobustAPIClient;
   private calculator: LinkScoreCalculator;
@@ -297,17 +307,42 @@ class AnalysisEngine {
     return { userId: user.id, analysisId: analysis.id };
   }
 
-  // Check if analysis has been cancelled
-  private async checkForCancellation(analysisId: string): Promise<boolean> {
+  // Smart cancellation check with caching to reduce database calls
+  private async checkForCancellation(analysisId: string, forceCheck: boolean = false): Promise<boolean> {
     try {
-      const analysis = await prisma.analysis.findUnique({
-        where: { id: analysisId },
-        select: { status: true }
-      });
-      
-      if (analysis?.status === 'cancelled') {
-        console.log(`Analysis ${analysisId} has been cancelled, stopping execution`);
+      // Check in-memory cache first (avoids database call)
+      const cached = progressCache.get(analysisId);
+      if (cached?.isCancelled) {
+        console.log(`Analysis ${analysisId} has been cancelled (cached), stopping execution`);
         return true;
+      }
+      
+      // Only check database at strategic points or if forced
+      const now = new Date();
+      const shouldCheckDB = forceCheck || 
+        !cached || 
+        (now.getTime() - cached.lastUpdate.getTime()) > 30000; // Check DB max every 30 seconds
+      
+      if (shouldCheckDB) {
+        const analysis = await prisma.analysis.findUnique({
+          where: { id: analysisId },
+          select: { status: true }
+        });
+        
+        if (analysis?.status === 'cancelled') {
+          console.log(`Analysis ${analysisId} has been cancelled, stopping execution`);
+          // Update cache
+          if (cached) {
+            cached.isCancelled = true;
+          }
+          return true;
+        }
+        
+        // Update cache with fresh status
+        if (cached) {
+          cached.lastUpdate = now;
+          cached.isCancelled = false;
+        }
       }
       
       return false;
@@ -343,8 +378,8 @@ class AnalysisEngine {
       }
     });
     
-    // Check for cancellation before starting
-    if (await this.checkForCancellation(analysisId)) {
+    // CHECKPOINT 1: Check for cancellation before starting major work
+    if (await this.checkForCancellation(analysisId, true)) {
       throw new Error('Analysis cancelled by user');
     }
     
@@ -371,10 +406,7 @@ class AnalysisEngine {
       competitors = ['yellowpages.com.au', 'seek.com.au', 'realestate.com.au', 'carsales.com.au', 'gumtree.com.au'];
     }
     
-    // Check for cancellation after competitor discovery
-    if (await this.checkForCancellation(analysisId)) {
-      throw new Error('Analysis cancelled by user');
-    }
+    // Remove excessive cancellation check - keep analysis moving
     
     // Show competitors found
     progressCallback({ 
@@ -400,17 +432,12 @@ class AnalysisEngine {
       }
     });
     
-    // Check for cancellation before client analysis
+        // CHECKPOINT 2: Check for cancellation before major API work (client analysis)
     if (await this.checkForCancellation(analysisId)) {
       throw new Error('Analysis cancelled by user');
     }
-    
+
     const clientLinks = await this.apiClient.getAuthorityReferringDomains(formData.domain);
-    
-    // Check for cancellation after client analysis
-    if (await this.checkForCancellation(analysisId)) {
-      throw new Error('Analysis cancelled by user');
-    }
     
     progressCallback({ 
       step: 'client_analysis_complete', 
@@ -447,9 +474,11 @@ class AnalysisEngine {
     
     let competitorIndex = 0;
     for (const competitor of competitors) {
-      // Check for cancellation before each competitor analysis
-      if (await this.checkForCancellation(analysisId)) {
-        throw new Error('Analysis cancelled by user');
+      // CHECKPOINT 3: Only check cancellation every few competitors (reduce DB calls)
+      if (competitorIndex === 0 || competitorIndex % 3 === 0) {
+        if (await this.checkForCancellation(analysisId)) {
+          throw new Error('Analysis cancelled by user');
+        }
       }
       
       const progressPercent = 35 + (competitorIndex / competitors.length) * 25; // 35% to 60%
@@ -472,11 +501,6 @@ class AnalysisEngine {
       try {
         // Get current authority links for competitive analysis
         competitorData[competitor] = await this.apiClient.getAuthorityReferringDomains(competitor);
-        
-        // Check for cancellation between API calls
-        if (await this.checkForCancellation(analysisId)) {
-          throw new Error('Analysis cancelled by user');
-        }
         
         // Get historical authority links data for comparison table
         const [currentData, historicalData] = await Promise.all([
@@ -549,10 +573,7 @@ class AnalysisEngine {
       competitorIndex++;
     }
     
-    // Check for cancellation before link gap analysis
-    if (await this.checkForCancellation(analysisId)) {
-      throw new Error('Analysis cancelled by user');
-    }
+    // Remove excessive cancellation check - keep analysis moving
     
     // Rank competitors by authority links gained (descending) and select top 5
     const topPerformers = competitorPerformance
@@ -608,17 +629,7 @@ class AnalysisEngine {
       }
     });
     
-    // Check for cancellation before link gap analysis
-    if (await this.checkForCancellation(analysisId)) {
-      throw new Error('Analysis cancelled by user');
-    }
-    
     const linkGaps = await this.apiClient.findLinkGaps(formData.domain, topPerformers);
-    
-    // Check for cancellation after link gap analysis
-    if (await this.checkForCancellation(analysisId)) {
-      throw new Error('Analysis cancelled by user');
-    }
     
     progressCallback({ 
       step: 'link_gaps_found', 
@@ -644,7 +655,7 @@ class AnalysisEngine {
       }
     });
     
-    // Final cancellation check before scoring
+    // CHECKPOINT 4: Final cancellation check before scoring (final stage)
     if (await this.checkForCancellation(analysisId)) {
       throw new Error('Analysis cancelled by user');
     }
@@ -871,7 +882,7 @@ class AnalysisEngine {
       console.log(`  Data: ${JSON.stringify(progress.data, null, 2)}`);
     }
     
-    // Store detailed progress in database for polling
+    // Store progress in memory cache
     const progressData = {
       step: progress.step,
       percentage: progress.percentage,
@@ -881,18 +892,45 @@ class AnalysisEngine {
       timestamp: new Date().toISOString()
     };
     
-    console.log('💾 Updating database with progress data...');
-    await prisma.analysis.update({
-      where: { id: analysisId },
-      data: {
-        status: 'processing', // Keep status as 'processing' for proper retrieval
-        errorMessage: JSON.stringify(progressData) // Store full progress data in errorMessage temporarily
-      }
-    }).then(() => {
-      console.log('✅ Database progress update successful');
-    }).catch(err => {
-      console.error('❌ Failed to update analysis progress:', err);
+    // Update in-memory cache (always)
+    progressCache.set(analysisId, {
+      analysisId,
+      lastUpdate: new Date(),
+      currentProgress: {
+        step: progress.step,
+        message: progress.message,
+        percentage: progress.percentage,
+        personalized: progress.personalized,
+        data: progress.data
+      },
+      isCancelled: false
     });
+    
+    // Only write to database on major milestones (every 20% or important steps)
+    const shouldUpdateDB = progress.percentage === 0 || 
+                          progress.percentage >= 100 ||
+                          progress.percentage % 20 === 0 ||
+                          ['completed', 'failed', 'cancelled'].includes(progress.step) ||
+                          progress.step.includes('complete');
+    
+    if (shouldUpdateDB) {
+      try {
+        console.log('💾 Updating database with milestone progress...');
+        await prisma.analysis.update({
+          where: { id: analysisId },
+          data: {
+            status: 'processing', // Keep status as 'processing' for proper retrieval
+            errorMessage: JSON.stringify(progressData) // Store full progress data in errorMessage temporarily
+          }
+        });
+        console.log('✅ Database milestone update successful');
+      } catch (err) {
+        console.error('❌ Failed to update analysis progress in database:', err);
+        // Continue execution even if DB update fails
+      }
+    } else {
+      console.log('📝 Progress cached in memory (skipping database write)');
+    }
   }
 
   private async handleAnalysisError(analysisId: string, error: any, formData: FormData) {
@@ -1030,8 +1068,29 @@ class AnalysisEngine {
     return analysis;
   }
 
-  // Get analysis status for polling
+  // Get analysis status for polling with in-memory cache optimization
   async getAnalysisStatus(analysisId: string): Promise<{ status: string; progress?: number; message?: string; progressData?: any }> {
+    // Check in-memory cache first (avoids database call for active analyses)
+    const cached = progressCache.get(analysisId);
+    if (cached) {
+      console.log(`📊 Status check for ${analysisId}: using cached progress`);
+      if (cached.isCancelled) {
+        return {
+          status: 'cancelled',
+          message: 'Analysis was cancelled'
+        };
+      }
+      
+      // Return cached progress for processing analyses
+      return {
+        status: 'processing',
+        progress: cached.currentProgress.percentage,
+        message: cached.currentProgress.message,
+        progressData: cached.currentProgress
+      };
+    }
+    
+    // Fall back to database for completed/failed analyses or when no cache
     const analysis = await prisma.analysis.findUnique({
       where: { id: analysisId },
       select: { status: true, errorMessage: true }
@@ -1045,6 +1104,8 @@ class AnalysisEngine {
     
     // For completed or failed status, return straightforward response
     if (analysis.status === 'completed') {
+      // Clean up cache for completed analysis
+      progressCache.delete(analysisId);
       return {
         status: 'completed',
         message: 'Analysis complete'
@@ -1052,6 +1113,8 @@ class AnalysisEngine {
     }
     
     if (analysis.status === 'failed') {
+      // Clean up cache for failed analysis
+      progressCache.delete(analysisId);
       return {
         status: 'failed',
         message: analysis.errorMessage || 'Analysis failed'
@@ -1059,17 +1122,19 @@ class AnalysisEngine {
     }
     
     if (analysis.status === 'cancelled') {
+      // Clean up cache for cancelled analysis
+      progressCache.delete(analysisId);
       return {
         status: 'cancelled',
         message: 'Analysis was cancelled'
       };
     }
     
-    // For processing status, try to parse detailed progress data
+    // For processing status, try to parse detailed progress data from database
     if (analysis.status === 'processing' && analysis.errorMessage) {
       try {
         const progressData = JSON.parse(analysis.errorMessage);
-        console.log(`📈 Parsed progress data:`, progressData);
+        console.log(`📈 Parsed progress data from database:`, progressData);
         return {
           status: 'processing',
           progress: progressData.percentage,

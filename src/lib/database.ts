@@ -10,9 +10,27 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-// Singleton pattern to prevent multiple Prisma instances
+// Create connection-limited database URL for Supabase
+const getDatabaseUrl = () => {
+  const baseUrl = process.env.DATABASE_URL;
+  if (!baseUrl) return baseUrl;
+  
+  // Add connection pooling parameters to prevent connection exhaustion
+  const url = new URL(baseUrl);
+  url.searchParams.set('connection_limit', '10'); // Limit concurrent connections
+  url.searchParams.set('pool_timeout', '10'); // 10 second timeout for getting connection
+  
+  return url.toString();
+};
+
+// Singleton pattern to prevent multiple Prisma instances with connection pooling
 const prisma = global.__prisma || new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
+  datasources: {
+    db: {
+      url: getDatabaseUrl()
+    }
+  }
 });
 
 if (process.env.NODE_ENV === 'development') {

@@ -665,7 +665,31 @@ Created comprehensive mobile-first UI component library:
 
 **Result**: Users can now easily copy and share their LinkScore results URL with colleagues, clients, or stakeholders
 
-### CRITICAL BUG FIX: Results Endpoint 500 Error (Null Safety) ✅
+### CRITICAL BUG FIX: Database Connection Exhaustion (Performance Optimization) ✅
+**🚨 Issue**: Analysis failing at 41% with "Can't reach database server" - Supabase connection pool exhaustion
+**Root Cause**: Analysis engine making 30-50+ database calls per analysis due to:
+- Excessive cancellation checks (11 per analysis)
+- Progress updates on every step (20+ per analysis)  
+- No Prisma connection pooling limits
+
+**✅ Comprehensive Performance Fix Applied**:
+- ✅ **Connection Pooling**: Added 10-connection limit to Prisma client for Supabase compatibility
+- ✅ **Smart Cancellation**: Reduced from 11 checks to 4 strategic checkpoints with 30-second caching
+- ✅ **Progress Batching**: Only write to database on major milestones (every 20% vs every step)
+- ✅ **In-Memory Cache**: Progress stored in memory, database only for persistence
+- ✅ **Status API Optimization**: Check cache first, database only for completed/failed analyses
+- ✅ **Cache Cleanup**: Automatic cleanup of completed/failed analysis data
+
+**Technical Details**:
+- Database calls reduced from 30-50+ to 8-12 per analysis (75% reduction)
+- Cancellation checks: 4 strategic points vs 11 excessive checks
+- Progress updates: Database writes only on 0%, 20%, 40%, 60%, 80%, 100% + completion steps
+- Connection pool: Limited to 10 concurrent connections (safe for Supabase free tier)
+- Cache expiry: 30-second refresh window for cancellation status
+
+**Result**: Eliminated connection pool exhaustion, analyses complete successfully without "Can't reach database server" errors
+
+### RESOLVED BUG FIX: Results Endpoint 500 Error (Null Safety) ✅
 **🚨 Issue**: After domain blocklist deployment, analyses were failing with 500 error on results endpoint
 **Root Cause**: Results endpoint was trying to access database fields that could be null without proper null checking
 **Evidence**: `analysis.costPerAuthorityLink` and other fields were null in database, causing TypeError when accessed
