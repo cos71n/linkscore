@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil } from '@vercel/functions';
 import { AnalysisEngine, FormData } from '@/lib/analysis-engine';
 import { securityMiddleware } from '@/lib/security';
+import { checkDomainBlocklist } from '@/lib/domain-blocklist';
 
 // Force fresh deployment after schema changes
 export async function POST(request: NextRequest) {
@@ -37,6 +38,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Domain blocklist check - BEFORE any processing
+    console.log('🚫 Checking domain blocklist...');
+    const blocklistResult = await checkDomainBlocklist(formData.domain);
+    if (blocklistResult.isBlocked) {
+      console.log(`🚫 Domain blocked: ${formData.domain}`);
+      return NextResponse.json(
+        { error: blocklistResult.error },
+        { status: 503 } // Service Temporarily Unavailable
+      );
+    }
+    console.log('✅ Domain blocklist check passed');
 
     // Validate data types and ranges
     if (typeof formData.monthlySpend !== 'number' || formData.monthlySpend < 1000) {
