@@ -918,8 +918,8 @@ function AnalysisProgressScreen({ progress, analysisId }: { progress: AnalysisPr
         </div>
       </div>
     </main>
-      );
-  }
+  );
+}
 
 // Add fadeIn animation to globals.css
 // @keyframes fadeIn {

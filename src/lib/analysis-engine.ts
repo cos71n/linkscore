@@ -795,7 +795,7 @@ class AnalysisEngine {
     await prisma.analysis.update({
       where: { id: analysisId },
       data: {
-        status: progress.step,
+        status: 'processing', // Keep status as 'processing' for proper retrieval
         errorMessage: JSON.stringify(progressData) // Store full progress data in errorMessage temporarily
       }
     }).catch(err => {
@@ -943,6 +943,8 @@ class AnalysisEngine {
       throw new Error('Analysis not found');
     }
     
+    console.log(`📊 Status check for ${analysisId}: status=${analysis.status}, hasErrorMessage=${!!analysis.errorMessage}`);
+    
     // For completed or failed status, return straightforward response
     if (analysis.status === 'completed') {
       return {
@@ -958,10 +960,18 @@ class AnalysisEngine {
       };
     }
     
+    if (analysis.status === 'cancelled') {
+      return {
+        status: 'cancelled',
+        message: 'Analysis was cancelled'
+      };
+    }
+    
     // For processing status, try to parse detailed progress data
-    if (analysis.errorMessage) {
+    if (analysis.status === 'processing' && analysis.errorMessage) {
       try {
         const progressData = JSON.parse(analysis.errorMessage);
+        console.log(`📈 Parsed progress data:`, progressData);
         return {
           status: 'processing',
           progress: progressData.percentage,
@@ -969,13 +979,13 @@ class AnalysisEngine {
           progressData: progressData
         };
       } catch (e) {
-        // If parsing fails, fall back to simple status
-        console.warn('Failed to parse progress data:', e);
+        console.warn('Failed to parse progress data:', e, 'Raw errorMessage:', analysis.errorMessage);
+        // Fall through to default processing message
       }
     }
     
     // Legacy fallback for old status format
-    const progressMatch = analysis.status.match(/(.+)_(\d+)%$/);
+    const progressMatch = analysis.status?.match(/(.+)_(\d+)%$/);
     if (progressMatch) {
       return {
         status: 'processing',
@@ -984,9 +994,10 @@ class AnalysisEngine {
       };
     }
     
+    // Default fallback
     return {
       status: analysis.status || 'processing',
-      message: 'Processing...'
+      message: analysis.status === 'processing' ? 'Starting analysis...' : 'Processing...'
     };
   }
 
