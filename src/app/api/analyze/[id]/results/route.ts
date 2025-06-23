@@ -7,7 +7,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    console.log('🔍 Results API called');
     const { id: analysisId } = await params;
+    console.log('📋 Analysis ID:', analysisId);
     
     if (!analysisId) {
       return NextResponse.json(
@@ -25,9 +27,17 @@ export async function GET(
       );
     }
 
+    console.log('🔧 Initializing engines...');
     const analysisEngine = new AnalysisEngine();
     const calculator = new LinkScoreCalculator();
+    
+    console.log('📊 Fetching analysis from database...');
     const analysis = await analysisEngine.getAnalysis(analysisId);
+    console.log('✅ Analysis retrieved:', { 
+      id: analysis.id, 
+      status: analysis.status, 
+      linkScore: analysis.linkScore 
+    });
     
     // Check if analysis is completed
     if (analysis.status !== 'completed') {
@@ -45,10 +55,12 @@ export async function GET(
 
     // Calculate actual market share growth using competitor historical data
     const calculateMarketShareGrowth = () => {
-      const historicalData = analysis.historicalData || {};
-      const competitors = analysis.competitors || [];
-      
-      if (competitors.length === 0) return 8; // Neutral if no competitors
+      try {
+        console.log('📈 Calculating market share growth...');
+        const historicalData = analysis.historicalData || {};
+        const competitors = analysis.competitors || [];
+        
+        if (competitors.length === 0) return 8; // Neutral if no competitors
       
       // Client data
       const clientStart = analysis.currentAuthorityLinks - analysis.authorityLinksGained;
@@ -87,12 +99,18 @@ export async function GET(
       if (marketShareChange >= -0.005) return 5;   // Lost <0.5% market share
       if (marketShareChange >= -0.01) return 3;    // Lost 0.5-1% market share
       return 1;                                    // Lost >1% market share
+      } catch (error) {
+        console.error('❌ Error calculating market share growth:', error);
+        return 8; // Default neutral score
+      }
     };
 
     // Calculate actual cost efficiency
     const calculateCostEfficiency = () => {
-      const expectedCostPerLink = (analysis.monthlySpend / 1000) * 667; // $667 per $1k spend baseline
-      const actualCostPerLink = analysis.costPerAuthorityLink;
+      try {
+        console.log('💰 Calculating cost efficiency...');
+        const expectedCostPerLink = (analysis.monthlySpend / 1000) * 667; // $667 per $1k spend baseline
+        const actualCostPerLink = analysis.costPerAuthorityLink;
       
       if (actualCostPerLink === 0 || expectedCostPerLink === 0) return 5;
       
@@ -110,9 +128,14 @@ export async function GET(
       if (efficiencyRatio >= 0.6) return 4;       // 40% worse than expected
       if (efficiencyRatio >= 0.4) return 2;       // 60% worse than expected
       return 1;                                   // >60% worse than expected
+      } catch (error) {
+        console.error('❌ Error calculating cost efficiency:', error);
+        return 5; // Default middle score
+      }
     };
 
     // Prepare comprehensive results response with new 100-point scale and detailed breakdown
+    console.log('🔧 Building results response...');
     const linkScoreResult = {
       overall: analysis.linkScore.toString(),
       breakdown: {
@@ -212,8 +235,11 @@ export async function GET(
                     (analysis.linkScore <= 60 || leadScores.priority >= 50) ? 'MEDIUM' : 'LOW';
 
     // Calculate investment summary
+    console.log('💰 Calculating investment summary...');
     const totalInvestment = analysis.monthlySpend * analysis.investmentMonths;
+    console.log(`Expected links calculation: $${analysis.monthlySpend}/month × ${analysis.investmentMonths} months = $${totalInvestment} ÷ $667 = ${Math.round(totalInvestment / 667)} expected links gained`);
     const expectedLinks = calculator.calculateExpectedLinks(analysis.monthlySpend, analysis.investmentMonths);
+    console.log('✅ Investment summary calculated');
 
     const results = {
       // Analysis metadata
@@ -293,7 +319,8 @@ export async function GET(
     return NextResponse.json(results);
 
   } catch (error: any) {
-    console.error('Results retrieval error:', error);
+    console.error('❌ Results retrieval error:', error);
+    console.error('❌ Error stack:', error.stack);
     
     if (error.message === 'Analysis not found') {
       return NextResponse.json(
@@ -302,8 +329,28 @@ export async function GET(
       );
     }
     
+    // More specific error messages for debugging
+    if (error.name === 'PrismaClientKnownRequestError') {
+      console.error('❌ Database error:', error.code, error.message);
+      return NextResponse.json(
+        { error: 'Database error occurred' },
+        { status: 500 }
+      );
+    }
+    
+    if (error.message?.includes('Cannot read properties')) {
+      console.error('❌ Missing data error - analysis may be incomplete:', error.message);
+      return NextResponse.json(
+        { error: 'Analysis data incomplete' },
+        { status: 500 }
+      );
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to retrieve analysis results' },
+      { 
+        error: 'Failed to retrieve analysis results',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
       { status: 500 }
     );
   }

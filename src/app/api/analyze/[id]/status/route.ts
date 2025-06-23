@@ -6,9 +6,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    console.log('🔍 Status endpoint called');
     const { id: analysisId } = await params;
+    console.log('📋 Analysis ID:', analysisId);
     
     if (!analysisId) {
+      console.error('❌ No analysis ID provided');
       return NextResponse.json(
         { error: 'Analysis ID is required' },
         { status: 400 }
@@ -18,14 +21,19 @@ export async function GET(
     // Validate UUID format
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(analysisId)) {
+      console.error('❌ Invalid UUID format:', analysisId);
       return NextResponse.json(
         { error: 'Invalid analysis ID format' },
         { status: 400 }
       );
     }
 
+    console.log('🔧 Initializing AnalysisEngine...');
     const analysisEngine = new AnalysisEngine();
+    
+    console.log('📊 Calling getAnalysisStatus...');
     const statusData = await analysisEngine.getAnalysisStatus(analysisId);
+    console.log('✅ Status data retrieved:', statusData);
     
     // Parse detailed progress data if available
     let progressData = null;
@@ -70,6 +78,7 @@ export async function GET(
     
     // For completed status, return success
     if (statusData.status === 'completed') {
+      console.log('✅ Analysis completed, returning completion status');
       return NextResponse.json({
         ...response,
         progress: {
@@ -120,7 +129,10 @@ export async function GET(
     });
 
   } catch (error: any) {
-    console.error('Status check error:', error);
+    console.error('❌ Status check error:', error);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
     
     if (error.message === 'Analysis not found') {
       return NextResponse.json(
@@ -130,7 +142,7 @@ export async function GET(
     }
     
     return NextResponse.json(
-      { error: 'Failed to check analysis status' },
+      { error: 'Failed to check analysis status', details: error.message },
       { status: 500 }
     );
   }

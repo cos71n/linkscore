@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { DomainInput, EmailInput, KeywordsInput } from '@/components/ui/form-inputs';
 import { LocationSelector } from '@/components/ui/location-selector';
@@ -831,7 +831,7 @@ function AnalysisProgressScreen({ progress, analysisId }: { progress: AnalysisPr
               {currentProgress.percentage > 0 && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-xs font-bold text-primary-600">
-                    {Math.round(currentProgress.percentage)}%
+                    {Math.round(currentProgress.percentage)}
                   </span>
                 </div>
               )}
@@ -921,7 +921,6 @@ function AnalysisProgressScreen({ progress, analysisId }: { progress: AnalysisPr
   );
 }
 
-// Add fadeIn animation to globals.css
 // @keyframes fadeIn {
 //   from { opacity: 0; transform: translateY(10px); }
 //   to { opacity: 1; transform: translateY(0); }

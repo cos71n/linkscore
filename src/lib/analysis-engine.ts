@@ -57,19 +57,54 @@ class AnalysisEngine {
   private calculator: LinkScoreCalculator;
 
   constructor() {
+    console.log('🔧 Initializing AnalysisEngine...');
     this.apiClient = new RobustAPIClient();
     this.calculator = new LinkScoreCalculator();
+    console.log('✅ AnalysisEngine initialized successfully');
   }
 
   async performAnalysis(formData: FormData, request: Request, existingAnalysisId?: string): Promise<AnalysisResult> {
     const startTime = Date.now();
     let analysisId = existingAnalysisId;
     
+    // Add overall timeout to prevent infinite hanging
+    const ANALYSIS_TIMEOUT = 5 * 60 * 1000; // 5 minutes timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Analysis timeout after ${ANALYSIS_TIMEOUT / 1000} seconds`));
+      }, ANALYSIS_TIMEOUT);
+    });
+    
     try {
+      console.log('🚀 performAnalysis started for analysis:', existingAnalysisId);
+      console.log('📋 Form data keys:', Object.keys(formData));
+      console.log('⏰ Analysis timeout set for', ANALYSIS_TIMEOUT / 1000, 'seconds');
+      
+      // Check critical environment variables
+      console.log('🔍 Checking environment variables...');
+      const hasDataForSEO = !!(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD);
+      const hasDatabase = !!process.env.DATABASE_URL;
+      console.log('📊 Environment check:', { 
+        hasDataForSEO, 
+        hasDatabase,
+        nodeEnv: process.env.NODE_ENV 
+      });
+      
+      if (!hasDataForSEO) {
+        throw new Error('DataForSEO credentials not found in environment variables');
+      }
+      
+      if (!hasDatabase) {
+        throw new Error('Database URL not found in environment variables');
+      }
+      
       // Extract IP address from request with proper fallback
+      console.log('🌐 Extracting IP address...');
       const ipAddress = this.extractIPAddress(request);
+      console.log('✅ IP address extracted:', ipAddress);
       
       // Extract UserInput fields from FormData for validation
+      console.log('📝 Creating user input object...');
       const userInput: UserInput = {
         domain: formData.domain,
         email: formData.email,
@@ -81,24 +116,32 @@ class AnalysisEngine {
         durationRange: formData.durationRange,
         keywords: formData.keywords
       };
+      console.log('✅ User input object created');
       
       // Step 1: Validate and sanitize input
+      console.log('🔒 Starting input validation and sanitization...');
       const sanitizedData = await validateAndSanitizeInput(userInput, ipAddress);
+      console.log('✅ Input validation and sanitization complete');
       
       // Merge monthly spend and investment months into sanitized data
+      console.log('🔧 Merging sanitized data with form data...');
       const completeData: FormData = {
         ...sanitizedData,
         monthlySpend: formData.monthlySpend,
         investmentMonths: formData.investmentMonths
       };
+      console.log('✅ Data merge complete');
       
       // Step 2: Create user and analysis records (if not already created)
       let userId: string;
       if (!analysisId) {
+        console.log('💾 Creating new analysis records...');
         const records = await this.createAnalysisRecords(completeData, request);
         userId = records.userId;
         analysisId = records.analysisId;
+        console.log('✅ Analysis records created:', { userId, analysisId });
       } else {
+        console.log('🔍 Using existing analysis, fetching user ID...');
         // Get user ID from existing analysis
         const analysis = await prisma.analysis.findUnique({
           where: { id: analysisId },
@@ -108,14 +151,32 @@ class AnalysisEngine {
           throw new Error('Analysis not found');
         }
         userId = analysis.userId;
+        console.log('✅ User ID retrieved:', userId);
       }
       
-      // Step 3: Perform the analysis with progress tracking
-      const result = await this.executeAnalysis(completeData, analysisId, userId);
+      // Step 3: Perform the analysis with progress tracking (with timeout)
+      console.log('⚡ Starting analysis execution...');
+      
+      // Update progress immediately to show the background process is running
+      await this.updateAnalysisProgress(analysisId, {
+        step: 'initialization',
+        message: 'Background analysis process started successfully',
+        percentage: 1,
+        personalized: true,
+        data: {
+          currentActivity: 'Initializing analysis engine'
+        }
+      });
+      
+      const analysisPromise = this.executeAnalysis(completeData, analysisId, userId);
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+      console.log('✅ Analysis execution complete');
       
       // Step 4: Calculate processing time and finalize
+      console.log('🏁 Finalizing analysis...');
       const processingTime = Math.round((Date.now() - startTime) / 1000);
       await this.finalizeAnalysis(analysisId, result, processingTime);
+      console.log('✅ Analysis finalized in', processingTime, 'seconds');
       
       return {
         ...result,
@@ -123,11 +184,32 @@ class AnalysisEngine {
         processingTime
       };
       
-    } catch (error) {
-      console.error('Analysis failed:', error);
+    } catch (error: any) {
+      console.error('❌ Analysis failed with error:', error.name, error.message);
+      console.error('❌ Error stack:', error.stack);
+      console.error('❌ Analysis ID at failure:', analysisId);
       
       if (analysisId) {
-        await this.handleAnalysisError(analysisId, error, formData);
+        console.log('🔧 Handling analysis error for ID:', analysisId);
+        try {
+          await this.handleAnalysisError(analysisId, error, formData);
+          console.log('✅ Analysis error handled successfully');
+        } catch (handleError) {
+          console.error('❌ Failed to handle analysis error:', handleError);
+          // Still try to update the analysis status to failed
+          try {
+            await prisma.analysis.update({
+              where: { id: analysisId },
+              data: {
+                status: 'failed',
+                errorMessage: error.message || 'Analysis failed unexpectedly'
+              }
+            });
+            console.log('✅ Analysis status updated to failed as fallback');
+          } catch (updateError) {
+            console.error('❌ Failed to update analysis status:', updateError);
+          }
+        }
       }
       
       throw error;
@@ -236,11 +318,16 @@ class AnalysisEngine {
   }
 
   private async executeAnalysis(formData: FormData, analysisId: string, userId: string): Promise<Omit<AnalysisResult, 'id' | 'processingTime'>> {
+    console.log('🎯 executeAnalysis started for:', { analysisId, userId, domain: formData.domain });
+    
     const progressCallback = (progress: AnalysisProgress) => {
+      console.log('📊 Progress update:', progress);
       this.updateAnalysisProgress(analysisId, progress);
     };
     
+    console.log('🗺️ Looking up location name for:', formData.location);
     const locationName = AUSTRALIAN_LOCATIONS[formData.location as keyof typeof AUSTRALIAN_LOCATIONS]?.name || formData.location;
+    console.log('✅ Location name resolved:', locationName);
     
     // Step 1: Find competitors
     progressCallback({ 
@@ -261,7 +348,28 @@ class AnalysisEngine {
       throw new Error('Analysis cancelled by user');
     }
     
-    const competitors = await this.apiClient.getCompetitors(formData.keywords, formData.location);
+    let competitors: string[];
+    try {
+      competitors = await this.apiClient.getCompetitors(formData.keywords, formData.location);
+    } catch (error: any) {
+      console.warn('Competitor search failed, using fallback approach:', error.message);
+      
+      // Update progress to show fallback is being used
+      progressCallback({ 
+        step: 'competitors_fallback', 
+        message: `Using fallback competitor data due to API timeout`, 
+        percentage: 12,
+        personalized: true,
+        data: {
+          keywords: formData.keywords,
+          location: locationName,
+          currentActivity: 'Using fallback competitor analysis'
+        }
+      });
+      
+      // Use basic Australian competitors as fallback
+      competitors = ['yellowpages.com.au', 'seek.com.au', 'realestate.com.au', 'carsales.com.au', 'gumtree.com.au'];
+    }
     
     // Check for cancellation after competitor discovery
     if (await this.checkForCancellation(analysisId)) {
@@ -755,6 +863,8 @@ class AnalysisEngine {
 
   private async updateAnalysisProgress(analysisId: string, progress: AnalysisProgress) {
     // Enhanced logging with personalized data
+    console.log(`📈 updateAnalysisProgress called for ${analysisId}`);
+    console.log(`📊 Progress data:`, progress);
     console.log(`Analysis ${analysisId}: ${progress.message} (${progress.percentage}%)`);
     
     if (progress.data) {
@@ -771,14 +881,17 @@ class AnalysisEngine {
       timestamp: new Date().toISOString()
     };
     
+    console.log('💾 Updating database with progress data...');
     await prisma.analysis.update({
       where: { id: analysisId },
       data: {
-        status: progress.step,
+        status: 'processing', // Keep status as 'processing' for proper retrieval
         errorMessage: JSON.stringify(progressData) // Store full progress data in errorMessage temporarily
       }
+    }).then(() => {
+      console.log('✅ Database progress update successful');
     }).catch(err => {
-      console.warn('Failed to update progress:', err);
+      console.error('❌ Failed to update analysis progress:', err);
     });
   }
 
@@ -871,15 +984,21 @@ class AnalysisEngine {
     const { encrypted: emailEncrypted, hash: emailHash } = encryptEmail(userData.email);
     const phoneHash = userData.phone ? hashPhone(userData.phone) : null;
     
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { emailHash }
+    // FIX: Check if user already exists with BOTH email AND domain
+    // This prevents domain mixing when the same email is used for different domains
+    const existingUser = await prisma.user.findFirst({
+      where: { 
+        emailHash,
+        domain: userData.domain  // ← CRITICAL FIX: Also check domain
+      }
     });
     
     if (existingUser) {
+      console.log(`✅ Found existing user for email + domain: ${userData.domain}`);
       return existingUser;
     }
     
+    console.log(`🆕 Creating new user for: ${userData.domain}`);
     return await prisma.user.create({
       data: {
         emailEncrypted: emailEncrypted, // Already JSON stringified by encryptEmail
@@ -922,6 +1041,8 @@ class AnalysisEngine {
       throw new Error('Analysis not found');
     }
     
+    console.log(`📊 Status check for ${analysisId}: status=${analysis.status}, hasErrorMessage=${!!analysis.errorMessage}`);
+    
     // For completed or failed status, return straightforward response
     if (analysis.status === 'completed') {
       return {
@@ -937,10 +1058,18 @@ class AnalysisEngine {
       };
     }
     
+    if (analysis.status === 'cancelled') {
+      return {
+        status: 'cancelled',
+        message: 'Analysis was cancelled'
+      };
+    }
+    
     // For processing status, try to parse detailed progress data
-    if (analysis.errorMessage) {
+    if (analysis.status === 'processing' && analysis.errorMessage) {
       try {
         const progressData = JSON.parse(analysis.errorMessage);
+        console.log(`📈 Parsed progress data:`, progressData);
         return {
           status: 'processing',
           progress: progressData.percentage,
@@ -948,13 +1077,13 @@ class AnalysisEngine {
           progressData: progressData
         };
       } catch (e) {
-        // If parsing fails, fall back to simple status
-        console.warn('Failed to parse progress data:', e);
+        console.warn('Failed to parse progress data:', e, 'Raw errorMessage:', analysis.errorMessage);
+        // Fall through to default processing message
       }
     }
     
     // Legacy fallback for old status format
-    const progressMatch = analysis.status.match(/(.+)_(\d+)%$/);
+    const progressMatch = analysis.status?.match(/(.+)_(\d+)%$/);
     if (progressMatch) {
       return {
         status: 'processing',
@@ -963,9 +1092,10 @@ class AnalysisEngine {
       };
     }
     
+    // Default fallback
     return {
       status: analysis.status || 'processing',
-      message: 'Processing...'
+      message: analysis.status === 'processing' ? 'Starting analysis...' : 'Processing...'
     };
   }
 

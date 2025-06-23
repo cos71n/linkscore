@@ -21,7 +21,7 @@ datasource db {
 model User {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   emailEncrypted String @map("email_encrypted") // Encrypted PII
-  emailHash    String   @unique @map("email_hash") @db.VarChar(64) // For lookups
+  emailHash    String   @map("email_hash") @db.VarChar(64) // For lookups (removed @unique)
   firstName    String?  @map("first_name") @db.VarChar(100)
   phoneHash    String?  @map("phone_hash") @db.VarChar(64) // Hashed for privacy
   domain       String   @db.VarChar(255)
@@ -35,6 +35,7 @@ model User {
   analyses Analysis[]
   securityEvents SecurityEvent[]
 
+  @@unique([emailHash, domain]) // Compound unique: same email can have different domains
   @@index([emailHash])
   @@index([domain])
   @@map("users")

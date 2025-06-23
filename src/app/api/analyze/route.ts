@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { AnalysisEngine, FormData } from '@/lib/analysis-engine';
 import { securityMiddleware } from '@/lib/security';
 
+// Force fresh deployment after schema changes
 export async function POST(request: NextRequest) {
   try {
+    console.log('🚀 Analysis API called');
+    
     // Security middleware check
+    console.log('🔒 Running security middleware...');
     const { isBlocked } = await securityMiddleware(request);
     if (isBlocked) {
       return NextResponse.json(
@@ -12,9 +17,12 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
+    console.log('✅ Security check passed');
 
     // Parse form data
+    console.log('📝 Parsing form data...');
     const formData: FormData = await request.json();
+    console.log('📊 Form data received:', JSON.stringify(formData, null, 2));
     
     // Validate required fields
     const requiredFields = [
@@ -52,28 +60,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('✅ Form validation passed');
+    
     // Initialize analysis engine
+    console.log('🔧 Initializing analysis engine...');
     const analysisEngine = new AnalysisEngine();
     
-    // Create preliminary analysis record first
+    // Create preliminary analysis record
+    console.log('💾 Creating preliminary analysis record...');
     const preliminaryResult = await analysisEngine.createPreliminaryAnalysis(formData, request);
+    console.log('✅ Preliminary analysis created:', preliminaryResult.analysisId);
     
-    // Start analysis asynchronously with the existing analysis ID
-    analysisEngine.performAnalysis(formData, request, preliminaryResult.analysisId).catch(error => {
-      console.error('Background analysis failed:', error);
-      // The error handling is already done in the analysis engine
-    });
+    // Start background analysis using waitUntil to keep function alive
+    console.log('🚀 Starting background analysis using waitUntil...');
+    waitUntil(
+      analysisEngine.performAnalysis(formData, request, preliminaryResult.analysisId)
+        .then(() => {
+          console.log('✅ Background analysis completed successfully for:', preliminaryResult.analysisId);
+        })
+        .catch((error) => {
+          console.error('❌ Background analysis failed for:', preliminaryResult.analysisId, error);
+          // Error handling is done within performAnalysis
+        })
+    );
     
-    // Return immediately with analysis ID so frontend can show loading screen
+    // Return success immediately with analysis ID for live streaming
     return NextResponse.json({
       success: true,
       analysisId: preliminaryResult.analysisId,
       status: 'processing',
-      message: 'Analysis started successfully'
+      message: 'Analysis started successfully - processing in background'
     });
 
   } catch (error: any) {
-    console.error('Analysis API error:', error);
+    console.error('❌ Analysis API error:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     
     // Return user-friendly error messages
     if (error.name === 'ValidationError') {
@@ -99,7 +122,7 @@ export async function POST(request: NextRequest) {
     
     // Generic error for unknown issues
     return NextResponse.json(
-      { error: 'Analysis failed. Please try again or contact support.' },
+      { error: 'Analysis failed. Please try again or contact support.', details: error.message },
       { status: 500 }
     );
   }

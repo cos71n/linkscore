@@ -72,8 +72,8 @@ class RobustAPIClient {
       login: process.env.DATAFORSEO_LOGIN || '',
       password: process.env.DATAFORSEO_PASSWORD || '',
       baseURL: 'https://api.dataforseo.com/v3',
-      maxRetries: 3,
-      timeoutMs: 30000
+      maxRetries: 2, // Reduced for Vercel
+      timeoutMs: 20000 // Reduced from 30s to 20s for Vercel
     };
 
     if (!this.config.login || !this.config.password) {
@@ -329,8 +329,30 @@ class RobustAPIClient {
     console.log(`🎯 Location targeting: ${location} → Code: ${locationConfig.code} (${locationConfig.name})`);
     console.log(`🔍 Searching keywords: [${keywords.join(', ')}]`);
     
-    // Use original keywords with Brisbane location + Google Australia
-    for (const keyword of keywords.slice(0, 3)) {
+    // Add overall timeout for Vercel (45 seconds max)
+    const competitorSearchPromise = this.doCompetitorSearch(keywords, locationConfig, competitors);
+    const timeoutPromise = new Promise<string[]>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Competitor search timeout after 45 seconds'));
+      }, 45000);
+    });
+    
+    try {
+      return await Promise.race([competitorSearchPromise, timeoutPromise]);
+    } catch (error: any) {
+      console.error('Competitor search failed:', error.message);
+      // Return fallback competitors if search fails
+      return this.getFallbackCompetitors(location);
+    }
+  }
+
+  private async doCompetitorSearch(keywords: string[], locationConfig: any, competitors: Set<string>): Promise<string[]> {
+    
+    // Use original keywords with location + Google Australia
+    // Process fewer keywords on Vercel for faster execution
+    const keywordsToProcess = keywords.slice(0, 2); // Reduced from 3 to 2 for Vercel
+    
+    for (const keyword of keywordsToProcess) {
       try {
         const params = {
           keyword,
@@ -404,7 +426,7 @@ class RobustAPIClient {
     
     // If no Australian competitors found, log detailed warning
     if (finalCompetitors.length === 0) {
-      console.log(`🚨 CRITICAL: No Australian competitors found for Brisbane (Code: ${locationConfig.code})`);
+      console.log(`🚨 CRITICAL: No Australian competitors found for ${locationConfig.name} (Code: ${locationConfig.code})`);
       console.log(`🚨 This suggests a location targeting problem with DataForSEO API`);
     }
     
@@ -477,16 +499,19 @@ class RobustAPIClient {
   }
 
   private getFallbackCompetitors(location: string): string[] {
-    // Fallback competitors based on location
-    const fallbackCompetitors: Record<string, string[]> = {
-      sydney: ['example1.com.au', 'example2.com.au', 'example3.com.au'],
-      melbourne: ['sample1.com.au', 'sample2.com.au', 'sample3.com.au'],
-      brisbane: ['demo1.com.au', 'demo2.com.au', 'demo3.com.au'],
-      perth: ['test1.com.au', 'test2.com.au', 'test3.com.au'],
-      adelaide: ['placeholder1.com.au', 'placeholder2.com.au', 'placeholder3.com.au']
-    };
+    console.log(`🔄 Using fallback competitors for ${location} due to search timeout/failure`);
     
-    return fallbackCompetitors[location] || fallbackCompetitors.sydney;
+    // Generic Australian business competitors as fallback
+    const fallbackCompetitors = [
+      'yellowpages.com.au',
+      'seek.com.au', 
+      'realestate.com.au',
+      'carsales.com.au',
+      'gumtree.com.au'
+    ];
+    
+    console.log(`🏆 Fallback competitors: [${fallbackCompetitors.join(', ')}]`);
+    return fallbackCompetitors;
   }
 
   // Test API connectivity

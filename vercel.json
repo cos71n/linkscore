@@ -1,0 +1,20 @@
+{
+  "functions": {
+    "src/app/api/analyze/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/analyze/[id]/status/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/analyze/[id]/results/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/webhook/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "regions": ["syd1", "iad1"],
+  "github": {
+    "silent": true
+  }
+} 
