@@ -831,7 +831,7 @@ function AnalysisProgressScreen({ progress, analysisId }: { progress: AnalysisPr
               {currentProgress.percentage > 0 && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-xs font-bold text-primary-600">
-                    {Math.round(currentProgress.percentage)}%
+                    {Math.round(currentProgress.percentage)}
                   </span>
                 </div>
               )}
