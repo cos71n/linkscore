@@ -665,6 +665,34 @@ Created comprehensive mobile-first UI component library:
 
 **Result**: Users can now easily copy and share their LinkScore results URL with colleagues, clients, or stakeholders
 
+### CRITICAL BUG FIX: Results Endpoint 500 Error (Null Safety) ✅
+**🚨 Issue**: After domain blocklist deployment, analyses were failing with 500 error on results endpoint
+**Root Cause**: Results endpoint was trying to access database fields that could be null without proper null checking
+**Evidence**: `analysis.costPerAuthorityLink` and other fields were null in database, causing TypeError when accessed
+
+**✅ Comprehensive Fix Applied**:
+- ✅ **Cost Efficiency Calculation**: Added null checks for `costPerAuthorityLink` field with proper fallback
+- ✅ **All Metrics**: Added null safety for all analysis metrics (authorityLinks, competitors, gaps, etc.)
+- ✅ **User Data**: Added optional chaining for user properties (domain, location, company)
+- ✅ **Campaign Data**: Added null fallbacks for spend, duration, keywords, ranges
+- ✅ **LinkScore Calculation**: Replaced direct `analysis.linkScore` access with safe `overallScore` variable
+- ✅ **Competitive Analysis**: Added null safety for competitor data and gap calculations
+- ✅ **Investment Summary**: Added safe property access for all investment calculations
+
+**Technical Details**:
+- Modified `/api/analyze/[id]/results/route.ts` with comprehensive null safety
+- Added proper fallback values (0 for numbers, '' for strings, [] for arrays)
+- Used optional chaining (`?.`) and logical OR (`||`) operators throughout
+- Maintained backward compatibility with existing working analyses
+
+**Success Criteria Met**:
+- ✅ Results endpoint no longer throws 500 errors for analyses with null fields
+- ✅ Domain blocklist working correctly (not blocking legitimate domains like google.com)
+- ✅ All existing functionality preserved with robust error handling
+- ✅ Comprehensive logging maintained for debugging future issues
+
+**Result**: Production analyses now work reliably even with incomplete database records, eliminating the 500 error issue
+
 ## Future Enhancements & Considerations (Consolidated)
 
 ### Post-MVP Features (NOT for initial launch)
