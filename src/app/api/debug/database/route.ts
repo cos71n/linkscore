@@ -24,6 +24,19 @@ export async function GET(request: NextRequest) {
       select: { id: true, status: true, createdAt: true }
     });
     
+    // DEBUG: Check the problematic analysis
+    const problematicAnalysis = await prisma.analysis.findUnique({
+      where: { id: '693d18a3-820d-4ba4-9ab4-d91d0e2e57bc' },
+      select: { 
+        id: true, 
+        status: true, 
+        createdAt: true,
+        user: true,
+        targetKeywords: true,
+        competitors: true
+      }
+    });
+    
     // Get latest analyses
     const latestAnalyses = await prisma.analysis.findMany({
       take: 5,
@@ -39,6 +52,8 @@ export async function GET(request: NextRequest) {
         specificAnalysisExists: !!specificAnalysis,
         specificAnalysisData: specificAnalysis
       },
+      // DEBUG: Include the problematic analysis data
+      problematicAnalysis,
       latestAnalyses,
       environment: {
         nodeEnv: process.env.NODE_ENV,
