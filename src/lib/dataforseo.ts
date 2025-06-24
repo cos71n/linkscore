@@ -777,9 +777,10 @@ class RobustAPIClient {
 
     const params: any = {
       target: domain,
+      mode: "one_per_domain", // Get one backlink per domain to get domain authority
       exclude_internal_backlinks: true,
       limit: 1000, // We get sample data but use totalCount for the real number
-      order_by: ['rank,desc'], // API sort by rank for consistency
+      order_by: ['domain_from_rank,desc'], // Sort by domain's own rank
       rank_scale: "one_hundred" // Use 0-100 scale to match Ahrefs DR
     };
 
@@ -788,14 +789,14 @@ class RobustAPIClient {
       params.filters = filters;
     }
 
-    console.log(`DataForSEO API Request: /backlinks/referring_domains/live`, {
+    console.log(`DataForSEO API Request: /backlinks/backlinks/live`, {
       params,
       beforeDate: beforeDate || 'current',
       attempt: 1
     });
 
     try {
-      const response = await this.makeRequest('/backlinks/referring_domains/live', params);
+      const response = await this.makeRequest('/backlinks/backlinks/live', params);
       
       if (!response.tasks || 
           !response.tasks[0] || 
@@ -809,7 +810,7 @@ class RobustAPIClient {
       const items = result.items || [];
       const totalCount = result.total_count || 0; // This counts REFERRING DOMAINS (correct!)
       
-      console.log(`DataForSEO API Success: /backlinks/referring_domains/live`, {
+      console.log(`DataForSEO API Success: /backlinks/backlinks/live`, {
         itemsReturned: items.length,
         totalCount,
         beforeDate: beforeDate || 'current',
@@ -819,12 +820,12 @@ class RobustAPIClient {
       // Apply spam score, geographic and domain authority filtering in code
       const filteredDomains = items.filter((item: any) => {
         // Skip items without a valid domain name
-        if (!item.domain) {
+        if (!item.domain_from) {
           return false;
         }
         
         // Apply spam score filter in code since API doesn't support it
-        if (item.backlinks_spam_score > AUTHORITY_CRITERIA.spamScore) {
+        if (item.backlink_spam_score > AUTHORITY_CRITERIA.spamScore) {
           return false;
         }
         
@@ -834,7 +835,7 @@ class RobustAPIClient {
         
         // Log when we find domains with high own authority but low passed authority
         if (item.domain_from_rank && item.domain_from_rank !== item.rank && item.domain_from_rank >= AUTHORITY_CRITERIA.domainRank) {
-          console.log(`🎯 Found high-authority domain: ${item.domain} (DR: ${item.domain_from_rank}, Passes: ${item.rank})`);
+          console.log(`🎯 Found high-authority domain: ${item.domain_from} (DR: ${item.domain_from_rank}, Passes: ${item.rank})`);
         }
         
         if (domainAuthority < AUTHORITY_CRITERIA.domainRank) {
@@ -842,24 +843,24 @@ class RobustAPIClient {
         }
         
         // Geographic filtering - prioritize Australian domains
-        const country = this.getCountryFromDomain(item.domain);
+        const country = this.getCountryFromDomain(item.domain_from);
         return AUTHORITY_CRITERIA.geoRelevance.includes(country);
       });
 
       console.log(`Filtered ${items.length} items to ${filteredDomains.length} authority referring domains`);
 
       const domains = filteredDomains.map((item: any) => ({
-        domain: item.domain,
+        domain: item.domain_from,
         rank: item.domain_from_rank || item.rank, // Use domain's own rank, fallback to passed rank
-        backlinks_spam_score: item.backlinks_spam_score,
+        backlinks_spam_score: item.backlink_spam_score,
         traffic: 1000, // Default value since not available in this API
         referring_domains: item.referring_domains || 0,
         backlinks_count: item.backlinks || 0,
-        country: this.getCountryFromDomain(item.domain)
+        country: this.getCountryFromDomain(item.domain_from)
       }));
 
       return {
-        authorityLinksCount: totalCount, // Correct count of REFERRING DOMAINS
+        authorityLinksCount: filteredDomains.length, // Count of AUTHORITY domains that passed filtering
         domains
       };
       
@@ -869,8 +870,9 @@ class RobustAPIClient {
         console.log('Date filtering not supported by referring_domains endpoint, using estimation approach');
         
         // Get current referring domains count
-        const currentResponse = await this.makeRequest('/backlinks/referring_domains/live', {
+        const currentResponse = await this.makeRequest('/backlinks/backlinks/live', {
           target: domain,
+          mode: "one_per_domain", // Get one backlink per domain to get domain authority
           // No rank filter at API level - get all referring domains and filter in code
           exclude_internal_backlinks: true,
           limit: 1,
