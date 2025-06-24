@@ -66,9 +66,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!Array.isArray(formData.keywords) || formData.keywords.length < 2 || formData.keywords.length > 5) {
+          if (!Array.isArray(formData.keywords) || formData.keywords.length < 1 || formData.keywords.length > 3) {
       return NextResponse.json(
-        { error: 'Please provide 2-5 keywords' },
+        { error: 'Please provide 1-3 keywords' },
         { status: 400 }
       );
     }

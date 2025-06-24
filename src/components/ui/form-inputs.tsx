@@ -51,12 +51,41 @@ export const DomainInput = forwardRef<HTMLInputElement, DomainInputProps>(
   ({ onValidate, ...props }, ref) => {
     const [isValid, setIsValid] = useState(true);
 
+    const sanitizeDomain = (input: string): string => {
+      let domain = input.trim();
+      
+      // Remove protocols
+      domain = domain.replace(/^https?:\/\//, '');
+      
+      // Remove www.
+      domain = domain.replace(/^www\./, '');
+      
+      // Remove trailing slash and any path
+      domain = domain.split('/')[0];
+      
+      // Remove query parameters and fragments
+      domain = domain.split('?')[0].split('#')[0];
+      
+      return domain;
+    };
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value;
-      const isValidDomain = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.?[a-zA-Z]{2,}$/.test(value);
-      setIsValid(isValidDomain || value === '');
+      const rawValue = e.target.value;
+      const sanitizedValue = sanitizeDomain(rawValue);
+      
+      const isValidDomain = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.?[a-zA-Z]{2,}$/.test(sanitizedValue);
+      setIsValid(isValidDomain || sanitizedValue === '');
       onValidate?.(isValidDomain);
-      props.onChange?.(e);
+      
+      // Create a new event with the sanitized value
+      const newEvent = {
+        ...e,
+        target: {
+          ...e.target,
+          value: sanitizedValue
+        }
+      };
+      props.onChange?.(newEvent as React.ChangeEvent<HTMLInputElement>);
     };
 
     return (

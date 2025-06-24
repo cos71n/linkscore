@@ -4,10 +4,10 @@ import { useState } from 'react';
 
 // Investment ranges from PRD
 const SPEND_RANGES = [
-  { value: '1000-2500', label: '$1,000 - $2,500/month', midpoint: 1750 },
-  { value: '2500-5000', label: '$2,500 - $5,000/month', midpoint: 3750 },
-  { value: '5000-7500', label: '$5,000 - $7,500/month', midpoint: 6250 },
-  { value: '7500-10000', label: '$7,500 - $10,000/month', midpoint: 8750 },
+  { value: '1000-2000', label: '$1,000 to $2,000/month', midpoint: 1500 },
+  { value: '2000-4000', label: '$2,000 to $4,000/month', midpoint: 3000 },
+  { value: '4000-6000', label: '$4,000 to $6,000/month', midpoint: 5000 },
+  { value: '6000-10000', label: '$6,000 to $10,000/month', midpoint: 8000 },
   { value: '10000+', label: '$10,000+/month', midpoint: 12000 }
 ];
 
@@ -75,7 +75,7 @@ export function InvestmentSelector({ data, onUpdate, onNext, className = '' }: I
           Monthly SEO Investment
         </label>
         <p className="text-sm text-gray-600 mb-4">
-          How much do you currently invest in SEO each month?
+          <strong>Be accurate!</strong> We calculate how many authority links you should have and your ROI based on this amount. Include all SEO costs (agency fees, tools, content, etc.).
         </p>
         <div className="grid gap-3">
           {SPEND_RANGES.map((range) => (

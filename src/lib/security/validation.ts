@@ -161,7 +161,7 @@ export function validateLocation(location: string): string {
  * Investment range validation
  */
 export function validateSpendRange(spendRange: string): string {
-  const validRanges = ['1000-2500', '2500-5000', '5000-7500', '7500-10000', '10000+'];
+  const validRanges = ['1000-2000', '2000-4000', '4000-6000', '6000-10000', '10000+'];
   
   if (!validRanges.includes(spendRange)) {
     throw new ValidationError('Invalid spend range selected');
@@ -191,8 +191,8 @@ export function sanitizeKeywords(keywords: string[]): string[] {
     throw new ValidationError('Keywords must be an array');
   }
   
-  if (keywords.length < 2 || keywords.length > 5) {
-    throw new ValidationError('Please provide 2-5 keywords');
+  if (keywords.length < 1 || keywords.length > 3) {
+    throw new ValidationError('Please provide 1-3 keywords');
   }
   
   return keywords.map(keyword => {

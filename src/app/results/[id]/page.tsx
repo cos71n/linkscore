@@ -221,53 +221,6 @@ export default function AnalysisResultsPage() {
           </p>
         </header>
 
-        {/* Share Results Copy Box */}
-        <div className="bg-white rounded-xl shadow-lg p-4 mb-8 border border-gray-200">
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <div className="flex-1 min-w-0">
-              <h4 className="text-sm font-semibold text-gray-900 mb-2">
-                📋 Share Your Results
-              </h4>
-              <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <div className="flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={typeof window !== 'undefined' ? window.location.href : ''}
-                    readOnly
-                    className="w-full bg-transparent text-sm text-gray-700 border-none outline-none font-mono truncate"
-                    placeholder="Loading URL..."
-                  />
-                </div>
-                <button
-                  onClick={copyToClipboard}
-                  className={`flex-shrink-0 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
-                    copySuccess
-                      ? 'bg-green-100 text-green-700 border border-green-200'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600'
-                  }`}
-                  disabled={copySuccess}
-                >
-                  {copySuccess ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Copied!
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      Copy
-                    </span>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Floating Navigation Menu */}
         <div className="fixed top-4 right-4 z-50">
           <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-2">
@@ -282,12 +235,61 @@ export default function AnalysisResultsPage() {
               <a href="#competitors" className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors">
                 🏆 Competitors
               </a>
-                             <a href="#resources" className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors">
-                 🎧 Resources
-               </a>
-               <a href="#audit" className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors">
-                 🔍 Audit
-               </a>
+              <a href="#resources" className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors">
+                🎧 Resources
+              </a>
+              <a href="#audit" className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors">
+                🔍 Audit
+              </a>
+              {/* Share Button with Dropdown */}
+              <div className="relative">
+                <button 
+                  onClick={() => {
+                    const dropdown = document.getElementById('share-dropdown');
+                    dropdown?.classList.toggle('hidden');
+                  }}
+                  className="w-full px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors text-left"
+                >
+                  📋 Share Results
+                </button>
+                <div id="share-dropdown" className="hidden absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 p-3 min-w-[300px]">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Share Your Results</h4>
+                  <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
+                    <input
+                      type="text"
+                      value={typeof window !== 'undefined' ? window.location.href : ''}
+                      readOnly
+                      className="flex-1 bg-transparent text-xs text-gray-700 border-none outline-none font-mono"
+                      placeholder="Loading URL..."
+                    />
+                    <button
+                      onClick={copyToClipboard}
+                      className={`flex-shrink-0 px-3 py-1 rounded-md font-medium text-xs transition-all duration-200 ${
+                        copySuccess
+                          ? 'bg-green-100 text-green-700 border border-green-200'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                      disabled={copySuccess}
+                    >
+                      {copySuccess ? (
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Copied!
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          Copy
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
             
             {/* Mobile Menu Button */}
@@ -303,22 +305,46 @@ export default function AnalysisResultsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
-              <div id="mobile-nav-menu" className="hidden absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[150px]">
+              <div id="mobile-nav-menu" className="hidden absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[200px]">
                 <a href="#linkscore" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
                   📊 LinkScore
                 </a>
                 <a href="#authority-links" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
                   🔗 Authority Links
                 </a>
-                                 <a href="#competitors" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
-                   🏆 Competitors
-                 </a>
-                 <a href="#resources" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
-                   🎧 Resources
-                 </a>
-                 <a href="#audit" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-b-lg">
-                   🔍 Audit
-                 </a>
+                <a href="#competitors" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
+                  🏆 Competitors
+                </a>
+                <a href="#resources" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
+                  🎧 Resources
+                </a>
+                <a href="#audit" className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600">
+                  🔍 Audit
+                </a>
+                {/* Mobile Share Section */}
+                <div className="border-t border-gray-200 p-3">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">📋 Share Results</h4>
+                  <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
+                    <input
+                      type="text"
+                      value={typeof window !== 'undefined' ? window.location.href : ''}
+                      readOnly
+                      className="flex-1 bg-transparent text-xs text-gray-700 border-none outline-none font-mono"
+                      placeholder="Loading URL..."
+                    />
+                    <button
+                      onClick={copyToClipboard}
+                      className={`flex-shrink-0 px-2 py-1 rounded text-xs font-medium transition-all duration-200 ${
+                        copySuccess
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                      disabled={copySuccess}
+                    >
+                      {copySuccess ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -361,13 +387,10 @@ export default function AnalysisResultsPage() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-xl font-bold text-red-800 mb-2">CRITICAL: Immediate Action Required</h3>
-                  <p className="text-red-700 mb-3">
+                  <p className="text-red-700">
                     Your LinkScore indicates severe SEO performance issues that require immediate intervention. 
                     This level of underperformance suggests fundamental problems with your current strategy.
                   </p>
-                  <div className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg font-medium">
-                    Urgency Level: {getUrgencyLevel(analysis.linkScore.overall)}
-                  </div>
                 </div>
               </div>
             </div>
@@ -398,16 +421,7 @@ export default function AnalysisResultsPage() {
                   </div>
                 </div>
 
-                <div className="text-center lg:text-left">
-                  <div className="inline-flex items-center px-4 py-2 bg-blue-50 rounded-lg border border-blue-200 mb-4">
-                    <span className="text-blue-700 font-medium">
-                      📊 LinkScore Scale: 1-100 Points
-                    </span>
-                  </div>
-                  <p className="text-gray-600">
-                    Based on {analysis.campaign.investmentMonths} months with ${analysis.campaign.totalInvestment.toLocaleString()} invested
-                  </p>
-                </div>
+
               </div>
 
               {/* Score Interpretation */}
@@ -442,7 +456,10 @@ export default function AnalysisResultsPage() {
 
               {/* Key Campaign Stats */}
               <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <h4 className="font-semibold text-gray-900 mb-4">Campaign Summary</h4>
+                <h4 className="font-semibold text-gray-900 mb-2">Campaign Summary</h4>
+                <p className="text-gray-600 text-sm mb-4">
+                  Based on {analysis.campaign.investmentMonths} months with ${analysis.campaign.totalInvestment.toLocaleString()} invested
+                </p>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Links Gained:</span>
@@ -679,12 +696,32 @@ export default function AnalysisResultsPage() {
                 <h5 className="font-semibold text-green-800 mb-2">📈 Next Steps</h5>
                 <p className="text-green-700 text-sm">
                   {parseFloat(analysis.linkScore.overall) < 40 ? 
-                    "Immediate strategy review and provider change recommended." :
+                    "Comprehensive strategy review needed. Focus on quick wins, address current shortcomings, and evaluate all aspects of your approach." :
                   parseFloat(analysis.linkScore.overall) < 60 ?
                     "Optimize current processes and target high-impact opportunities." :
                     "Maintain momentum and expand to new keywords/markets."
                   }
                 </p>
+              </div>
+
+              {/* Free SEO Audit Call-out */}
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-4 text-white shadow-lg">
+                <h5 className="font-semibold mb-2 flex items-center gap-2">
+                  <span className="text-xl">🎯</span>
+                  Get Free Comprehensive SEO Audit
+                </h5>
+                <p className="text-blue-100 text-sm mb-3">
+                  Let our SEO experts audit your entire strategy - links, content, technical SEO, and AI visibility. 
+                  Get a detailed roadmap with projected ROI.
+                </p>
+                <a 
+                  href="https://www.theseoshow.co/do-your-seo"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block bg-white text-blue-600 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  Get Free Audit →
+                </a>
               </div>
             </div>
           </div>

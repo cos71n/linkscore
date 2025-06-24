@@ -17,8 +17,9 @@ const getDatabaseUrl = () => {
   
   // Add connection pooling parameters to prevent connection exhaustion
   const url = new URL(baseUrl);
-  url.searchParams.set('connection_limit', '10'); // Limit concurrent connections
-  url.searchParams.set('pool_timeout', '10'); // 10 second timeout for getting connection
+  url.searchParams.set('connection_limit', '3'); // Lower limit for Supabase free tier
+  url.searchParams.set('pool_timeout', '20'); // Longer timeout for busy periods
+  url.searchParams.set('pool_mode', 'transaction'); // Force transaction pooling mode
   
   return url.toString();
 };

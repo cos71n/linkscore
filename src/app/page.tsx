@@ -27,10 +27,10 @@ const AUSTRALIAN_LOCATIONS = [
 
 // Investment ranges from PRD
 const SPEND_RANGES = [
-  { value: '1000-2500', label: '$1,000 - $2,500/month' },
-  { value: '2500-5000', label: '$2,500 - $5,000/month' },
-  { value: '5000-7500', label: '$5,000 - $7,500/month' },
-  { value: '7500-10000', label: '$7,500 - $10,000/month' },
+  { value: '1000-2000', label: '$1,000 to $2,000/month' },
+  { value: '2000-4000', label: '$2,000 to $4,000/month' },
+  { value: '4000-6000', label: '$4,000 to $6,000/month' },
+  { value: '6000-10000', label: '$6,000 to $10,000/month' },
   { value: '10000+', label: '$10,000+/month' }
 ];
 
@@ -53,6 +53,25 @@ export default function HomePage() {
   });
 
   const totalSteps = 5;
+
+  // Domain sanitization function
+  const sanitizeDomain = (input: string): string => {
+    let domain = input.trim();
+    
+    // Remove protocols
+    domain = domain.replace(/^https?:\/\//, '');
+    
+    // Remove www.
+    domain = domain.replace(/^www\./, '');
+    
+    // Remove trailing slash and any path
+    domain = domain.split('/')[0];
+    
+    // Remove query parameters and fragments
+    domain = domain.split('?')[0].split('#')[0];
+    
+    return domain;
+  };
 
   const handleNext = () => {
     if (currentStep < totalSteps) {
@@ -126,10 +145,10 @@ export default function HomePage() {
   // Helper functions to convert range strings to numbers
   const getMonthlySpendFromRange = (range: string): number => {
     switch (range) {
-      case '1000-2500': return 1750; // Midpoint
-      case '2500-5000': return 3750;
-      case '5000-7500': return 6250;
-      case '7500-10000': return 8750;
+      case '1000-2000': return 1500; // Midpoint
+      case '2000-4000': return 3000;
+      case '4000-6000': return 5000;
+      case '6000-10000': return 8000;
       case '10000+': return 12000;
       default: return 1000;
     }
@@ -150,7 +169,7 @@ export default function HomePage() {
       case 2: return formData.location;
       case 3: return formData.spendRange;
       case 4: return formData.durationRange;
-      case 5: return formData.keywords && formData.keywords.split(',').length >= 2;
+      case 5: return formData.keywords && formData.keywords.split(',').length >= 1;
       default: return false;
     }
   };
@@ -176,7 +195,10 @@ export default function HomePage() {
               <Input
                 placeholder="yourwebsite.com.au"
                 value={formData.domain}
-                onChange={(e) => setFormData({...formData, domain: e.target.value})}
+                onChange={(e) => {
+                  const sanitizedDomain = sanitizeDomain(e.target.value);
+                  setFormData({...formData, domain: sanitizedDomain});
+                }}
               />
             </div>
             <div className="space-y-2">
@@ -242,7 +264,7 @@ export default function HomePage() {
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              How much do you currently spend on SEO per month?
+              <strong>Be accurate!</strong> We calculate how many authority links you should have and your ROI based on this amount.
             </p>
             <RadioGroup
               value={formData.spendRange}
@@ -288,7 +310,7 @@ export default function HomePage() {
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Enter 2-5 keywords separated by commas (e.g., plumber Sydney, emergency plumbing)
+              Enter 1-3 keywords separated by commas (e.g., plumber Sydney, emergency plumbing)
             </p>
             <div className="space-y-2">
               <Label>Target Keywords</Label>

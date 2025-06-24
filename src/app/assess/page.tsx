@@ -73,7 +73,7 @@ export default function AssessPage() {
       // Validate required fields
       if (!formData.domain || !formData.email || !formData.location || 
           !formData.spendRange || !formData.durationRange || 
-          formData.keywords.length < 2) {
+          formData.keywords.length < 1) {
         throw new Error('Please complete all required fields');
       }
 
@@ -218,7 +218,7 @@ export default function AssessPage() {
           error={error}
         />
       ),
-      canProceed: formData.keywords.length >= 2
+      canProceed: formData.keywords.length >= 1
     }
   ];
 
@@ -469,7 +469,7 @@ function InvestmentStep({
         Tell us about your SEO investment
       </h3>
       <p className="text-gray-600 mb-6">
-        This helps us calculate if you're getting good value
+        <strong>Accuracy is crucial!</strong> We use this to calculate your expected ROI and how many authority links you should have gained.
       </p>
       
       <InvestmentSelector 
@@ -517,14 +517,14 @@ function KeywordsStep({
         What are your main target keywords?
       </h3>
       <p className="text-gray-600 mb-6">
-        List 2-5 keywords you're trying to rank for
+        List 1-3 keywords you're trying to rank for
       </p>
       
       <KeywordsInput 
         keywords={value}
         onKeywordsChange={onChange}
         placeholder="e.g., personal injury lawyer sydney"
-        maxKeywords={5}
+        maxKeywords={3}
         className="mb-6"
       />
       
@@ -544,7 +544,7 @@ function KeywordsStep({
         </button>
         <button 
           onClick={onNext}
-          disabled={value.length < 2 || isSubmitting}
+          disabled={value.length < 1 || isSubmitting}
           className="btn-primary flex-1"
         >
           {isSubmitting ? (
