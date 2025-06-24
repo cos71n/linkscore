@@ -402,8 +402,8 @@ class AnalysisEngine {
         }
       });
       
-      // Use basic Australian competitors as fallback
-      competitors = ['yellowpages.com.au', 'seek.com.au', 'realestate.com.au', 'carsales.com.au', 'gumtree.com.au'];
+      // Use smaller, more manageable Australian competitors as fallback (avoid massive domains)
+      competitors = ['bunnings.com.au', 'officeworks.com.au', 'jbhifi.com.au', 'woolworths.com.au', 'coles.com.au'];
     }
     
     // Remove excessive cancellation check - keep analysis moving
@@ -499,51 +499,50 @@ class AnalysisEngine {
       });
       
       try {
-        // Get current authority links for competitive analysis
-        competitorData[competitor] = await this.apiClient.getAuthorityReferringDomains(competitor);
+        // Add individual timeout for each competitor analysis (30 seconds max)
+        const competitorAnalysisPromise = this.analyzeCompetitorWithTimeout(competitor, campaignStartDateStr);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Competitor analysis timeout after 30 seconds for ${competitor}`));
+          }, 30000);
+        });
         
-        // Get historical authority links data for comparison table
-        const [currentData, historicalData] = await Promise.all([
-          this.apiClient.getAuthorityLinksByDate(competitor), // Current
-          this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr) // Historical
-        ]);
+        const competitorResult = await Promise.race([competitorAnalysisPromise, timeoutPromise]);
         
-        const currentCount = currentData.authorityLinksCount;
-        const historicalCount = historicalData.authorityLinksCount;
-        const gained = Math.max(0, currentCount - historicalCount);
-        
+        // Process the results
+        competitorData[competitor] = competitorResult.domains;
         competitorHistoricalData[competitor] = {
-          current: currentCount,
-          historical: historicalCount,
-          gained: gained
+          current: competitorResult.currentCount,
+          historical: competitorResult.historicalCount,
+          gained: competitorResult.gained
         };
         
         // Track performance for ranking
         competitorPerformance.push({
           competitor,
-          gained,
-          current: currentCount,
-          historical: historicalCount
+          gained: competitorResult.gained,
+          current: competitorResult.currentCount,
+          historical: competitorResult.historicalCount
         });
         
         // Show competitor results
         progressCallback({ 
           step: 'competitor_result', 
-          message: `${competitor}: ${currentCount} authority links (+${gained} gained over ${formData.investmentMonths} months)`, 
+          message: `${competitor}: ${competitorResult.currentCount} authority links (+${competitorResult.gained} gained over ${formData.investmentMonths} months)`, 
           percentage: progressPercent + 2,
           personalized: true,
           data: {
             competitors: [competitor],
             currentActivity: 'Competitor analysis complete',
             metrics: { 
-              authorityLinks: currentCount,
-              linksGained: gained,
+              authorityLinks: competitorResult.currentCount,
+              linksGained: competitorResult.gained,
               timeframe: formData.investmentMonths
             }
           }
         });
         
-        console.log(`Competitor ${competitor}: ${historicalCount} → ${currentCount} = +${gained} authority links gained`);
+        console.log(`Competitor ${competitor}: ${competitorResult.historicalCount} → ${competitorResult.currentCount} = +${competitorResult.gained} authority links gained`);
         
       } catch (error) {
         // Check if error is due to cancellation
@@ -1215,6 +1214,33 @@ class AnalysisEngine {
       console.error('Failed to create preliminary analysis:', error);
       throw error;
     }
+  }
+
+  private async analyzeCompetitorWithTimeout(competitor: string, campaignStartDateStr: string): Promise<{
+    domains: DomainData[];
+    currentCount: number;
+    historicalCount: number;
+    gained: number;
+  }> {
+    // Get current authority links for competitive analysis
+    const domains = await this.apiClient.getAuthorityReferringDomains(competitor);
+    
+    // Get historical authority links data for comparison table
+    const [currentData, historicalData] = await Promise.all([
+      this.apiClient.getAuthorityLinksByDate(competitor), // Current
+      this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr) // Historical
+    ]);
+    
+    const currentCount = currentData.authorityLinksCount;
+    const historicalCount = historicalData.authorityLinksCount;
+    const gained = Math.max(0, currentCount - historicalCount);
+    
+    return {
+      domains,
+      currentCount,
+      historicalCount,
+      gained
+    };
   }
 }
 

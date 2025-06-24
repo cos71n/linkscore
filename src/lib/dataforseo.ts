@@ -72,8 +72,8 @@ class RobustAPIClient {
       login: process.env.DATAFORSEO_LOGIN || '',
       password: process.env.DATAFORSEO_PASSWORD || '',
       baseURL: 'https://api.dataforseo.com/v3',
-      maxRetries: 2, // Reduced for Vercel
-      timeoutMs: 20000 // Reduced from 30s to 20s for Vercel
+      maxRetries: 3, // Increased for better reliability
+      timeoutMs: 45000 // Increased from 20s to 45s for SERP requests
     };
 
     if (!this.config.login || !this.config.password) {
@@ -81,6 +81,14 @@ class RobustAPIClient {
     }
 
     this.authHeader = 'Basic ' + Buffer.from(`${this.config.login}:${this.config.password}`).toString('base64');
+    
+    // Log initialization (without exposing credentials)
+    console.log('DataForSEO Client initialized:', {
+      baseURL: this.config.baseURL,
+      maxRetries: this.config.maxRetries,
+      timeoutMs: this.config.timeoutMs,
+      hasCredentials: !!(this.config.login && this.config.password)
+    });
   }
 
   private async makeRequest(endpoint: string, params: any, retryCount = 0): Promise<any> {
@@ -88,7 +96,11 @@ class RobustAPIClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
       
-      console.log(`DataForSEO API Request: ${endpoint}`, { params, attempt: retryCount + 1 });
+      console.log(`DataForSEO API Request: ${endpoint}`, { 
+        params: JSON.stringify(params).substring(0, 200) + '...', 
+        attempt: retryCount + 1,
+        timeout: this.config.timeoutMs 
+      });
       
       const response = await fetch(`${this.config.baseURL}${endpoint}`, {
         method: 'POST',
@@ -102,29 +114,65 @@ class RobustAPIClient {
       
       clearTimeout(timeoutId);
       
+      console.log(`DataForSEO API Response: ${endpoint}`, {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+      
       if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unable to read error response');
+        console.error(`DataForSEO API HTTP Error:`, {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText.substring(0, 500)
+        });
         throw new APIError(`API request failed: ${response.status} ${response.statusText}`, response.status);
       }
       
       const data = await response.json();
       
+      console.log(`DataForSEO API Data Structure:`, {
+        hasDataProperty: !!data,
+        statusCode: data?.status_code,
+        statusMessage: data?.status_message,
+        hasTasks: !!data?.tasks,
+        tasksLength: data?.tasks?.length,
+        cost: data?.cost
+      });
+      
       if (data.status_code !== 20000) {
+        console.error(`DataForSEO API Business Logic Error:`, {
+          statusCode: data.status_code,
+          statusMessage: data.status_message,
+          fullResponse: JSON.stringify(data).substring(0, 500)
+        });
         throw new APIError(`API error: ${data.status_message || 'Unknown error'}`, data.status_code);
       }
       
       console.log(`DataForSEO API Success: ${endpoint}`, { 
         itemsReturned: data.tasks?.[0]?.result?.[0]?.items?.length || 0,
-        cost: data.cost
+        cost: data.cost,
+        statusCode: data.status_code
       });
       
       return data;
       
     } catch (error: any) {
-      console.error(`DataForSEO API Error (attempt ${retryCount + 1}):`, error.message);
+      console.error(`DataForSEO API Error (attempt ${retryCount + 1}/${this.config.maxRetries + 1}):`, {
+        errorName: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack?.substring(0, 500),
+        statusCode: error.statusCode,
+        endpoint,
+        retryCount,
+        willRetry: retryCount < this.config.maxRetries && this.isRetryableError(error)
+      });
       
       if (retryCount < this.config.maxRetries && this.isRetryableError(error)) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-        console.log(`Retrying in ${delay}ms...`);
+        console.log(`Retrying DataForSEO request in ${delay}ms...`);
         await this.delay(delay);
         return this.makeRequest(endpoint, params, retryCount + 1);
       }
@@ -134,12 +182,39 @@ class RobustAPIClient {
   }
 
   private isRetryableError(error: any): boolean {
-    return error.name === 'AbortError' || 
-           error.message.includes('network') ||
-           error.message.includes('timeout') ||
-           error.statusCode === 503 ||
-           error.statusCode === 502 ||
-           error.statusCode === 429; // Rate limit
+    // Network and timeout errors
+    if (error.name === 'AbortError' || 
+        error.name === 'TimeoutError' ||
+        error.message.includes('network') ||
+        error.message.includes('timeout') ||
+        error.message.includes('ECONNRESET') ||
+        error.message.includes('ENOTFOUND') ||
+        error.message.includes('ECONNREFUSED')) {
+      return true;
+    }
+    
+    // HTTP status codes that should be retried
+    if (error.statusCode === 503 ||  // Service Unavailable
+        error.statusCode === 502 ||  // Bad Gateway
+        error.statusCode === 504 ||  // Gateway Timeout
+        error.statusCode === 429 ||  // Rate Limit
+        error.statusCode === 500) {  // Internal Server Error
+      return true;
+    }
+    
+    // DataForSEO specific error codes that might be temporary
+    if (error.statusCode === 40500 ||  // DataForSEO internal error
+        error.statusCode === 50000) {   // DataForSEO server error
+      return true;
+    }
+    
+    console.log(`Error not retryable:`, {
+      name: error.name,
+      message: error.message,
+      statusCode: error.statusCode
+    });
+    
+    return false;
   }
 
   private delay(ms: number): Promise<void> {
@@ -329,12 +404,12 @@ class RobustAPIClient {
     console.log(`🎯 Location targeting: ${location} → Code: ${locationConfig.code} (${locationConfig.name})`);
     console.log(`🔍 Searching keywords: [${keywords.join(', ')}]`);
     
-    // Add overall timeout for Vercel (45 seconds max)
+    // Add overall timeout for Vercel (30 seconds max for competitor search)
     const competitorSearchPromise = this.doCompetitorSearch(keywords, locationConfig, competitors, excludeDomain);
     const timeoutPromise = new Promise<string[]>((_, reject) => {
       setTimeout(() => {
-        reject(new Error('Competitor search timeout after 45 seconds'));
-      }, 45000);
+        reject(new Error('Competitor search timeout after 30 seconds'));
+      }, 30000); // Reduced from 45s to 30s
     });
     
     try {
@@ -507,13 +582,14 @@ class RobustAPIClient {
   private getFallbackCompetitors(location: string, excludeDomain?: string): string[] {
     console.log(`🔄 Using fallback competitors for ${location} due to search timeout/failure`);
     
-    // Generic Australian business competitors as fallback
+    // Smaller, more manageable Australian business competitors as fallback
+    // Avoid massive domains like seek.com.au, realestate.com.au that cause timeouts
     let fallbackCompetitors = [
-      'yellowpages.com.au',
-      'seek.com.au', 
-      'realestate.com.au',
-      'carsales.com.au',
-      'gumtree.com.au'
+      'bunnings.com.au',      // Large but manageable
+      'officeworks.com.au',   // Medium-sized retailer
+      'jbhifi.com.au',        // Electronics retailer
+      'woolworths.com.au',    // Supermarket chain
+      'coles.com.au'          // Supermarket chain
     ];
     
     // Filter out client domain if provided
@@ -522,7 +598,7 @@ class RobustAPIClient {
       console.log(`🚫 Filtered out client domain ${excludeDomain} from fallback competitors`);
     }
     
-    console.log(`🏆 Fallback competitors: [${fallbackCompetitors.join(', ')}]`);
+    console.log(`🏆 Fallback competitors (manageable sizes): [${fallbackCompetitors.join(', ')}]`);
     return fallbackCompetitors;
   }
 
