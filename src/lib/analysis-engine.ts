@@ -1,4 +1,4 @@
-import { prisma } from './database';
+import { prisma, startResourceMonitoring } from './database';
 import { RobustAPIClient, DomainData, LinkGapResult, AUTHORITY_CRITERIA, AUSTRALIAN_LOCATIONS } from './dataforseo';
 import { 
   LinkScoreCalculator, 
@@ -70,6 +70,13 @@ class AnalysisEngine {
     console.log('🔧 Initializing AnalysisEngine...');
     this.apiClient = new RobustAPIClient();
     this.calculator = new LinkScoreCalculator();
+    
+    // Start database resource monitoring
+    if (process.env.NODE_ENV === 'production') {
+      startResourceMonitoring();
+      console.log('🔄 Database resource monitoring started');
+    }
+    
     console.log('✅ AnalysisEngine initialized successfully');
   }
 
