@@ -84,9 +84,12 @@ export async function POST(request: NextRequest) {
     const preliminaryResult = await analysisEngine.createPreliminaryAnalysis(formData, request);
     console.log('✅ Preliminary analysis created:', preliminaryResult.analysisId);
     
-    // Start background analysis using waitUntil to keep function alive
-    console.log('🚀 Starting background analysis using waitUntil...');
-    waitUntil(
+    // Start background analysis with proper local/production handling
+    console.log('🚀 Starting background analysis...');
+    
+    if (process.env.NODE_ENV === 'development') {
+      // In development, start background process directly
+      console.log('🏠 Development mode: Starting background analysis directly');
       analysisEngine.performAnalysis(formData, request, preliminaryResult.analysisId)
         .then(() => {
           console.log('✅ Background analysis completed successfully for:', preliminaryResult.analysisId);
@@ -94,8 +97,21 @@ export async function POST(request: NextRequest) {
         .catch((error) => {
           console.error('❌ Background analysis failed for:', preliminaryResult.analysisId, error);
           // Error handling is done within performAnalysis
-        })
-    );
+        });
+    } else {
+      // In production, use Vercel's waitUntil to keep function alive
+      console.log('☁️ Production mode: Starting background analysis using waitUntil');
+      waitUntil(
+        analysisEngine.performAnalysis(formData, request, preliminaryResult.analysisId)
+          .then(() => {
+            console.log('✅ Background analysis completed successfully for:', preliminaryResult.analysisId);
+          })
+          .catch((error) => {
+            console.error('❌ Background analysis failed for:', preliminaryResult.analysisId, error);
+            // Error handling is done within performAnalysis
+          })
+      );
+    }
     
     // Return success immediately with analysis ID for live streaming
     return NextResponse.json({
