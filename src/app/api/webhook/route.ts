@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AnalysisEngine } from '@/lib/analysis-engine';
 import { LinkScoreCalculator } from '@/lib/link-score';
+import { decryptEmail } from '@/lib/security/encryption';
 
 interface WebhookPayload {
   timestamp: string;
@@ -15,6 +16,7 @@ interface WebhookPayload {
   user: {
     id: string;
     domain: string;
+    email: string;
     company: string;
     location: string;
     locationName: string;
@@ -163,6 +165,7 @@ export async function POST(request: NextRequest) {
       user: {
         id: analysis.user.id,
         domain: analysis.user.domain,
+        email: decryptEmail(analysis.user.emailEncrypted),
         company: analysis.user.companyName || '',
         location: analysis.user.location,
         locationName: locationInfo.name,
