@@ -244,6 +244,108 @@ class RobustAPIClient {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // Traffic data cache with 24-hour TTL
+  private static trafficCache = new Map<string, { traffic: number; timestamp: number; ttl: number }>();
+  private static readonly TRAFFIC_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
+
+  async getBulkTrafficEstimation(domains: string[], bypassCache: boolean = false): Promise<Map<string, number>> {
+    const trafficMap = new Map<string, number>();
+    const domainsToQuery: string[] = [];
+    
+    // Check cache first (unless bypassing)
+    const shouldBypassCache = bypassCache || process.env.BYPASS_TRAFFIC_CACHE === 'true';
+    
+    for (const domain of domains) {
+      if (!shouldBypassCache) {
+        const cached = RobustAPIClient.trafficCache.get(domain);
+        if (cached && Date.now() - cached.timestamp < cached.ttl) {
+          trafficMap.set(domain, cached.traffic);
+          continue;
+        }
+      }
+      domainsToQuery.push(domain);
+    }
+    
+    if (domainsToQuery.length === 0) {
+      console.log(`All ${domains.length} domains found in traffic cache`);
+      return trafficMap;
+    }
+    
+    console.log(`Querying traffic for ${domainsToQuery.length} domains (${domains.length - domainsToQuery.length} cached)`);
+    
+    // Process in batches of 1000 (DataForSEO Labs API limit)
+    const batchSize = 1000;
+    for (let i = 0; i < domainsToQuery.length; i += batchSize) {
+      const batch = domainsToQuery.slice(i, i + batchSize);
+      
+      try {
+        const params = {
+          targets: batch.map(domain => ({ target: domain }))
+        };
+        
+        console.log(`Fetching traffic data for batch ${Math.floor(i/batchSize) + 1} (${batch.length} domains)`);
+        
+        const response = await this.makeRequest('/dataforseo_labs/google/bulk_traffic_estimation/live', params);
+        
+        if (!response.tasks || !response.tasks[0] || !response.tasks[0].result) {
+          console.log('DataForSEO Labs API returned empty result for traffic estimation');
+          continue;
+        }
+        
+        const results = response.tasks[0].result;
+        
+        // Process results and cache them
+        for (const result of results) {
+          if (result && result.target && typeof result.organic_etv === 'number') {
+            const domain = result.target;
+            const monthlyTraffic = Math.round(result.organic_etv); // Monthly organic traffic
+            
+            trafficMap.set(domain, monthlyTraffic);
+            
+            // Cache with 24-hour TTL
+            RobustAPIClient.trafficCache.set(domain, {
+              traffic: monthlyTraffic,
+              timestamp: Date.now(),
+              ttl: RobustAPIClient.TRAFFIC_CACHE_TTL
+            });
+            
+            console.log(`Traffic data: ${domain} = ${monthlyTraffic} monthly visits`);
+          } else {
+            // If no traffic data available, cache 0 to avoid repeated queries
+            const domain = batch.find(d => d === (result?.target || '')) || batch[0];
+            trafficMap.set(domain, 0);
+            RobustAPIClient.trafficCache.set(domain, {
+              traffic: 0,
+              timestamp: Date.now(),
+              ttl: RobustAPIClient.TRAFFIC_CACHE_TTL
+            });
+          }
+        }
+        
+        // Add delay between batches to respect API rate limits
+        if (i + batchSize < domainsToQuery.length) {
+          await this.delay(1000); // 1 second delay between batches
+        }
+        
+      } catch (error) {
+        console.error(`Failed to fetch traffic data for batch starting at ${i}:`, error);
+        
+        // Cache 0 traffic for failed domains to avoid repeated failures
+        for (const domain of batch) {
+          trafficMap.set(domain, 0);
+          RobustAPIClient.trafficCache.set(domain, {
+            traffic: 0,
+            timestamp: Date.now(),
+            ttl: RobustAPIClient.TRAFFIC_CACHE_TTL
+          });
+        }
+      }
+    }
+    
+    console.log(`Traffic estimation complete: ${trafficMap.size} domains processed`);
+    return trafficMap;
+  }
+
   private isAuthorityLink(domain: DomainData): boolean {
     return (
       domain.rank >= AUTHORITY_CRITERIA.domainRank &&
@@ -290,9 +392,10 @@ class RobustAPIClient {
       .filter((item: any) => item.domain_from)
       .map((item: any) => item.domain_from);
     
-    console.log(`Processing ${domainNames.length} referring domains (using default traffic values for now)`);
+    console.log(`Getting real traffic data for ${domainNames.length} referring domains`);
     
-    // TODO: Implement traffic filtering - for now using default values
+    // Get real traffic data for all domains using DataForSEO Labs API
+    const trafficMap = await this.getBulkTrafficEstimation(domainNames, false);
     
     // Filter for spam score, geographic relevance, domain authority, and traffic
     const filteredDomains = domains
@@ -320,10 +423,9 @@ class RobustAPIClient {
           return false;
         }
         
-        // Apply traffic filter (using estimated traffic based on domain authority)
-        // Most domains with DR >= 20 likely have sufficient traffic
-        const estimatedTraffic = domainAuthority >= 25 ? 1000 : 800; // More realistic estimates
-        if (estimatedTraffic < AUTHORITY_CRITERIA.monthlyTraffic) {
+        // Apply traffic filter with real DataForSEO Labs API data
+        const realTraffic = trafficMap.get(item.domain_from) || 0;
+        if (realTraffic < AUTHORITY_CRITERIA.monthlyTraffic) {
           return false;
         }
         
@@ -341,7 +443,7 @@ class RobustAPIClient {
         domain: item.domain_from,
         rank: item.domain_from_rank || item.rank, // Use domain's own rank, fallback to passed rank
         backlinks_spam_score: item.backlink_spam_score,
-        traffic: 1000, // Default traffic value for testing
+        traffic: trafficMap.get(item.domain_from) || 0, // Real traffic data from DataForSEO Labs API
         referring_domains: item.referring_domains || 0,
         backlinks_count: item.backlinks || 0
       }))
@@ -818,8 +920,8 @@ class RobustAPIClient {
         cost: response.cost
       });
 
-      // Apply spam score, geographic and domain authority filtering in code
-      const filteredDomains = items.filter((item: any) => {
+      // Apply spam score, geographic and domain authority filtering in code (but not traffic yet)
+      const preFilteredDomains = items.filter((item: any) => {
         // Skip items without a valid domain name
         if (!item.domain_from) {
           return false;
@@ -843,24 +945,30 @@ class RobustAPIClient {
           return false;
         }
         
-        // Apply traffic filter (using estimated traffic based on domain authority)
-        const estimatedTraffic = domainAuthority >= 25 ? 1000 : 800; // More realistic estimates
-        if (estimatedTraffic < AUTHORITY_CRITERIA.monthlyTraffic) {
-          return false;
-        }
-        
         // Geographic filtering - prioritize Australian domains
         const country = this.getCountryFromDomain(item.domain_from);
         return AUTHORITY_CRITERIA.geoRelevance.includes(country);
       });
 
-      console.log(`Filtered ${items.length} items to ${filteredDomains.length} authority referring domains`);
+      console.log(`Pre-filtered ${items.length} items to ${preFilteredDomains.length} domains (before traffic filtering)`);
+
+      // Get real traffic data for pre-filtered domains
+      const domainNames = preFilteredDomains.map((item: any) => item.domain_from);
+      const trafficMap = await this.getBulkTrafficEstimation(domainNames, false);
+
+      // Now apply traffic filtering with real data
+      const filteredDomains = preFilteredDomains.filter((item: any) => {
+        const realTraffic = trafficMap.get(item.domain_from) || 0;
+        return realTraffic >= AUTHORITY_CRITERIA.monthlyTraffic;
+      });
+
+      console.log(`Final filtering: ${preFilteredDomains.length} → ${filteredDomains.length} authority domains (after traffic >= ${AUTHORITY_CRITERIA.monthlyTraffic})`);
 
       const domains = filteredDomains.map((item: any) => ({
         domain: item.domain_from,
         rank: item.domain_from_rank || item.rank, // Use domain's own rank, fallback to passed rank
         backlinks_spam_score: item.backlink_spam_score,
-        traffic: 1000, // Default value since not available in this API
+        traffic: trafficMap.get(item.domain_from) || 0, // Real traffic data from DataForSEO Labs API
         referring_domains: item.referring_domains || 0,
         backlinks_count: item.backlinks || 0,
         country: this.getCountryFromDomain(item.domain_from)
