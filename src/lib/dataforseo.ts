@@ -56,6 +56,29 @@ const AUSTRALIAN_LOCATIONS = {
   australia_general: { code: 2036, name: "Australia" }
 };
 
+// Competitor blocklist - directory-type domains that should never be selected as competitors
+// Include both www and non-www versions to handle DataForSEO API variations
+const COMPETITOR_BLOCKLIST: Set<string> = new Set([
+  'localsearch.com.au',
+  'www.localsearch.com.au',
+  'yellowpages.com.au',
+  'www.yellowpages.com.au',
+  'airtasker.com',
+  'www.airtasker.com',
+  'hipages.com.au',
+  'www.hipages.com.au',
+  'clutch.co',
+  'www.clutch.co',
+  'semrush.com',
+  'www.semrush.com',
+  'trustpilot.com',
+  'www.trustpilot.com',
+  'productreview.com.au',
+  'www.productreview.com.au',
+  'reddit.com',
+  'www.reddit.com'
+]);
+
 class APIError extends Error {
   constructor(message: string, public statusCode?: number) {
     super(message);
@@ -300,6 +323,16 @@ class RobustAPIClient {
     return 'US'; // Default to US for .com, etc.
   }
 
+  private isBlockedCompetitor(domain: string): boolean {
+    // Add null/undefined check for defensive programming
+    if (!domain || typeof domain !== 'string') {
+      return false;
+    }
+    
+    // Check if domain is in the blocklist (includes both www and non-www versions)
+    return COMPETITOR_BLOCKLIST.has(domain.toLowerCase().trim());
+  }
+
   async getHistoricalData(domain: string, startDate: string, endDate: string): Promise<any[]> {
     const params = {
       target: domain,
@@ -477,7 +510,7 @@ class RobustAPIClient {
           console.log(`  📍 Position ${position}: ${domain} (${geography})`);
         });
         
-        // Add Australian domains to competitors (exclude client's own domain)
+        // Add Australian domains to competitors (exclude client's own domain and blocked domains)
         organicDomains.forEach(({ domain }: { domain: string }) => {
           const isAustralian = domain.endsWith('.com.au') || 
                               domain.endsWith('.au') ||
@@ -486,6 +519,12 @@ class RobustAPIClient {
           // Skip if this is the client's own domain
           if (excludeDomain && domain === excludeDomain) {
             console.log(`🚫 Skipping client domain: ${domain} (can't be competitor to itself)`);
+            return;
+          }
+          
+          // Skip if this is a blocked competitor domain
+          if (this.isBlockedCompetitor(domain)) {
+            console.log(`🚫 Skipping blocked competitor: ${domain} (directory-type domain)`);
             return;
           }
           
@@ -596,6 +635,13 @@ class RobustAPIClient {
     if (excludeDomain) {
       fallbackCompetitors = fallbackCompetitors.filter(domain => domain !== excludeDomain);
       console.log(`🚫 Filtered out client domain ${excludeDomain} from fallback competitors`);
+    }
+    
+    // Filter out blocked competitor domains
+    const originalLength = fallbackCompetitors.length;
+    fallbackCompetitors = fallbackCompetitors.filter(domain => !this.isBlockedCompetitor(domain));
+    if (fallbackCompetitors.length < originalLength) {
+      console.log(`🚫 Filtered out ${originalLength - fallbackCompetitors.length} blocked domains from fallback competitors`);
     }
     
     console.log(`🏆 Fallback competitors (manageable sizes): [${fallbackCompetitors.join(', ')}]`);
@@ -779,5 +825,5 @@ class RobustAPIClient {
   }
 }
 
-export { RobustAPIClient, AUTHORITY_CRITERIA, AUSTRALIAN_LOCATIONS };
+export { RobustAPIClient, AUTHORITY_CRITERIA, AUSTRALIAN_LOCATIONS, COMPETITOR_BLOCKLIST };
 export type { DomainData, LinkGapResult }; 

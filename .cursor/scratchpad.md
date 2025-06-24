@@ -68,6 +68,8 @@ const AUTHORITY_CRITERIA = {
 - [x] **Phase 5: Integration** - CRM webhook & deployment ✅ COMPLETE
   - [x] Vercel deployment compatibility fixed ✅
   - [x] Zapier webhook integration completed ✅
+- [x] **Phase 6: Quality Enhancements** - Competitor analysis improvements ✅ COMPLETE
+  - [x] Competitor domain blocking implementation ✅
 
 ## Current Sprint / Active Tasks
 
@@ -77,6 +79,24 @@ const AUTHORITY_CRITERIA = {
 ### Task 3: Analysis Engine (Critical Path) ✅ COMPLETE
 
 ### Task 4: Vercel Deployment Fix (Critical) ✅ COMPLETE
+
+### Task 6: Competitor Domain Blocking (Quality Enhancement) ✅ COMPLETE
+**Goal**: Block directory-type domains from being selected as competitors in analysis
+**Time**: 20 minutes (completed faster than estimated)
+**Rationale**: Directory sites like yellowpages.com.au and localsearch.com.au are not true competitors and skew analysis results
+
+#### High-level Task Breakdown:
+- [x] **Subtask 6.1**: Create competitor domain blocklist (15 min) ✅ COMPLETE
+  - ✅ Added COMPETITOR_BLOCKLIST constant with 9 directory-type domains
+  - ✅ Implemented isBlockedCompetitor() method for domain checking
+  - ✅ Added blocklist filtering to doCompetitorSearch() method
+  - ✅ Added comprehensive logging for blocked domain detection
+  - **Success Criteria**: ✅ Blocked domains are filtered out during competitor selection
+- [x] **Subtask 6.2**: Update fallback competitors filtering (15 min) ✅ COMPLETE
+  - ✅ Added blocklist filtering to getFallbackCompetitors() method  
+  - ✅ Tested build compilation - no TypeScript errors
+  - ✅ Exported COMPETITOR_BLOCKLIST constant for reusability
+  - **Success Criteria**: ✅ Analysis results show only legitimate business competitors
 
 #### Subtask 4.1: Prisma Build Script Fix (30 min) ✅ COMPLETE
 - ✅ Updated package.json build script to include `prisma generate && next build`
@@ -390,6 +410,20 @@ const AUSTRALIAN_LOCATIONS = {
 
 ## Executor's Feedback or Assistance Requests (Current Only)
 
+### ✅ **TASK COMPLETED** - Competitor Domain Blocking Implementation
+
+**Status**: Task 6 COMPLETE - Successfully implemented competitor domain blocking
+**Goal**: ✅ Improved analysis quality by filtering out non-competitive directory sites
+**Implementation Details**:
+- ✅ Added COMPETITOR_BLOCKLIST constant with 18 domain variations (www + non-www)
+- ✅ Created isBlockedCompetitor() method for efficient domain checking
+- ✅ Integrated blocking logic into both live competitor search and fallback competitors
+- ✅ Added comprehensive logging for transparency and debugging
+- ✅ Exported blocklist constant for potential future use in other components
+- ✅ **CRITICAL FIX**: Updated blocklist to include both www and non-www versions since DataForSEO API returns domains with both variations
+**Domains Successfully Blocked**: localsearch.com.au, yellowpages.com.au, airtasker.com, hipages.com.au, clutch.co, semrush.com, trustpilot.com, productreview.com.au, reddit.com (both www and non-www versions)
+**Result**: Analysis now focuses on legitimate business competitors only, improving lead quality and competitive insights
+
 ### 🎯 **BREAKTHROUGH ACHIEVED** - All Critical Issues RESOLVED ✅
 
 **Status**: Analysis pipeline now works **END-TO-END** from 0% to 100% completion!
@@ -487,6 +521,14 @@ competitors = $14::jsonb,    // Properly serialized JSON + casting
 - Use environment variables for all secrets
 - Implement HTTPS everywhere
 - Regular security audits required
+
+### Competitor Analysis Quality Control (NEW)
+- **Directory Domain Blocking**: Directory-type domains (yellowpages.com.au, localsearch.com.au, etc.) are not true competitors and should be filtered out
+- **Implementation Pattern**: Use Set-based blocklist with isBlocked() helper method for O(1) lookup performance
+- **Filter Integration**: Apply blocking logic in both live API competitor search AND fallback competitors
+- **Logging Strategy**: Log all blocked domains with clear reasoning for transparency and debugging
+- **Maintenance**: Keep blocklist as exportable constant for potential use in other analysis components
+- **Business Impact**: Filtering directory domains significantly improves competitive analysis accuracy and lead quality
 
 ---
 
