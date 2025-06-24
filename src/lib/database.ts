@@ -15,11 +15,12 @@ const getDatabaseUrl = () => {
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) return baseUrl;
   
-  // Add connection pooling parameters to prevent connection exhaustion
+  // Add connection pooling parameters for dedicated transaction pooler (paid plan)
   const url = new URL(baseUrl);
-  url.searchParams.set('connection_limit', '3'); // Lower limit for Supabase free tier
-  url.searchParams.set('pool_timeout', '20'); // Longer timeout for busy periods
-  url.searchParams.set('pool_mode', 'transaction'); // Force transaction pooling mode
+  url.searchParams.set('connection_limit', '20'); // Higher limit for paid plan
+  url.searchParams.set('pool_timeout', '60'); // Longer timeout for busy periods
+  url.searchParams.set('pool_mode', 'transaction'); // Use dedicated transaction pooler
+  url.searchParams.set('statement_cache_size', '0'); // Disable statement caching to prevent conflicts
   
   return url.toString();
 };
