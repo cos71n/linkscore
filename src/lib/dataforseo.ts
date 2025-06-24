@@ -32,6 +32,29 @@ interface LinkGapResult {
   intersections: number;
 }
 
+// Domain normalization function to handle www/non-www consolidation like Ahrefs
+function normalizeDomain(domain: string): string {
+  if (!domain || typeof domain !== 'string') {
+    return domain;
+  }
+  
+  let normalized = domain.toLowerCase().trim();
+  
+  // Remove protocol
+  normalized = normalized.replace(/^https?:\/\//, '');
+  
+  // Remove www prefix for consolidation (like Ahrefs "domain including subdomains")
+  normalized = normalized.replace(/^www\./, '');
+  
+  // Remove trailing slash and path
+  normalized = normalized.split('/')[0];
+  
+  // Remove port numbers
+  normalized = normalized.split(':')[0];
+  
+  return normalized;
+}
+
 // Authority link criteria from PRD
 const AUTHORITY_CRITERIA: AuthorityLinkCriteria = {
   domainRank: 20,        // DataForSEO Domain Rank >= 20
@@ -57,26 +80,17 @@ const AUSTRALIAN_LOCATIONS = {
 };
 
 // Competitor blocklist - directory-type domains that should never be selected as competitors
-// Include both www and non-www versions to handle DataForSEO API variations
+// Using normalized domains (no www prefix) since we normalize before checking blocklist
 const COMPETITOR_BLOCKLIST: Set<string> = new Set([
   'localsearch.com.au',
-  'www.localsearch.com.au',
   'yellowpages.com.au',
-  'www.yellowpages.com.au',
   'airtasker.com',
-  'www.airtasker.com',
   'hipages.com.au',
-  'www.hipages.com.au',
   'clutch.co',
-  'www.clutch.co',
   'semrush.com',
-  'www.semrush.com',
   'trustpilot.com',
-  'www.trustpilot.com',
   'productreview.com.au',
-  'www.productreview.com.au',
-  'reddit.com',
-  'www.reddit.com'
+  'reddit.com'
 ]);
 
 class APIError extends Error {
@@ -391,65 +405,101 @@ class RobustAPIClient {
       console.log(`  Domain ${i + 1}: ${d.domain_from} - rank: ${d.rank}, domain_from_rank: ${d.domain_from_rank}, spam: ${d.backlink_spam_score}`);
     });
     
-    // Extract unique domain names for traffic lookup
-    const domainNames = domains
-      .filter((item: any) => item.domain_from)
-      .map((item: any) => item.domain_from);
+    // Extract unique domain names for traffic lookup (normalize to consolidate www/non-www)
+    const uniqueNormalizedDomains = new Set<string>();
+    const domainMappings = new Map<string, string>(); // normalized -> original
     
-    console.log(`Getting real traffic data for ${domainNames.length} referring domains`);
+    domains.forEach((item: any) => {
+      if (item.domain_from) {
+        const normalized = normalizeDomain(item.domain_from);
+        uniqueNormalizedDomains.add(normalized);
+        // Keep track of one original domain per normalized version for API calls
+        if (!domainMappings.has(normalized)) {
+          domainMappings.set(normalized, item.domain_from);
+        }
+      }
+    });
     
-    // Get real traffic data for all domains using DataForSEO Labs API
-    const trafficMap = await this.getBulkTrafficEstimation(domainNames, false);
+    const domainNames = Array.from(domainMappings.values());
+    console.log(`Getting real traffic data for ${domainNames.length} unique domains (consolidated from ${domains.length} raw domains)`);
     
-    // Filter for spam score, geographic relevance, domain authority, and traffic
-    const filteredDomains = domains
-      .filter((item: any) => {
-        // Skip domains without a valid domain name
-        if (!item.domain_from) {
-          return false;
-        }
-        
-        // Apply spam score filter in code since API doesn't support it
-        if (item.backlink_spam_score > AUTHORITY_CRITERIA.spamScore) {
-          return false;
-        }
-        
-        // Use domain_from_rank (domain's own rank) instead of rank (authority passed to target)
-        const domainAuthority = item.domain_from_rank || item.rank;
-        const linkAuthority = item.rank; // Authority passed to target
-        
-        // Log when we find domains with high own authority but low passed authority
-        if (item.domain_from_rank && item.domain_from_rank !== item.rank && item.domain_from_rank >= AUTHORITY_CRITERIA.domainRank) {
-          console.log(`🎯 Found high-authority domain: ${item.domain_from} (DR: ${item.domain_from_rank}, Passes: ${item.rank})`);
-        }
-        
-        if (domainAuthority < AUTHORITY_CRITERIA.domainRank) {
-          return false;
-        }
-        
-        // Apply traffic filter with real DataForSEO Labs API data
-        const realTraffic = trafficMap.get(item.domain_from) || 0;
-        if (realTraffic < AUTHORITY_CRITERIA.monthlyTraffic) {
-          return false;
-        }
-        
-                 // Check geographic relevance (removed for now to be less restrictive)
-         // const country = this.getCountryFromDomain(item.domain_from);
-         // return AUTHORITY_CRITERIA.geoRelevance.includes(country);
-         return true;
-       });
+    // Get real traffic data for consolidated domains using DataForSEO Labs API
+    const rawTrafficMap = await this.getBulkTrafficEstimation(domainNames, false);
     
-    console.log(`Filtered ${domains.length} domains to ${filteredDomains.length} authority domains`);
+    // Create normalized traffic map for lookups
+    const trafficMap = new Map<string, number>();
+    for (const [normalized, original] of domainMappings.entries()) {
+      trafficMap.set(normalized, rawTrafficMap.get(original) || 0);
+    }
+    
+    // Group domains by normalized name to consolidate www/non-www versions
+    const domainGroups = new Map<string, any[]>();
+    
+    domains.forEach((item: any) => {
+      if (item.domain_from) {
+        const normalized = normalizeDomain(item.domain_from);
+        if (!domainGroups.has(normalized)) {
+          domainGroups.set(normalized, []);
+        }
+        domainGroups.get(normalized)!.push(item);
+      }
+    });
+    
+    console.log(`Grouped ${domains.length} raw domains into ${domainGroups.size} unique domains (www/non-www consolidated)`);
+    
+    // Process each domain group and apply filtering
+    const filteredDomains = [];
+    
+    for (const [normalizedDomain, domainItems] of domainGroups.entries()) {
+      // Consolidate metrics across www/non-www versions
+      const consolidatedDomain = {
+        normalized_domain: normalizedDomain,
+        original_domain: domainItems[0].domain_from, // Use first version as display name
+        rank: Math.max(...domainItems.map(d => d.domain_from_rank || d.rank || 0)), // Use highest rank
+        backlinks_spam_score: Math.min(...domainItems.map(d => d.backlink_spam_score || 100)), // Use lowest spam score
+        referring_domains: Math.max(...domainItems.map(d => d.referring_domains || 0)), // Use highest referring domains
+        backlinks_count: domainItems.reduce((sum, d) => sum + (d.backlinks || 0), 0), // Sum backlinks
+        traffic: trafficMap.get(normalizedDomain) || 0,
+        variants: domainItems.map(d => d.domain_from) // Track all variants found
+      };
+      
+      // Apply filtering to consolidated domain
+      if (consolidatedDomain.backlinks_spam_score > AUTHORITY_CRITERIA.spamScore) {
+        continue;
+      }
+      
+      if (consolidatedDomain.rank < AUTHORITY_CRITERIA.domainRank) {
+        continue;
+      }
+      
+      if (consolidatedDomain.traffic < AUTHORITY_CRITERIA.monthlyTraffic) {
+        continue;
+      }
+      
+      // Log consolidated domains with multiple variants
+      if (consolidatedDomain.variants.length > 1) {
+        console.log(`🔗 Consolidated domain: ${normalizedDomain} (variants: ${consolidatedDomain.variants.join(', ')}) - rank: ${consolidatedDomain.rank}, traffic: ${consolidatedDomain.traffic}`);
+      }
+      
+      // Log when we find domains with high authority
+      if (consolidatedDomain.rank >= AUTHORITY_CRITERIA.domainRank) {
+        console.log(`🎯 Found high-authority domain: ${normalizedDomain} (DR: ${consolidatedDomain.rank}, Traffic: ${consolidatedDomain.traffic})`);
+      }
+      
+      filteredDomains.push(consolidatedDomain);
+    }
+    
+    console.log(`Filtered ${domainGroups.size} unique domains to ${filteredDomains.length} authority domains`);
     
     // Map to our DomainData structure and sort by domain rank
     return filteredDomains
       .map((item: any) => ({
-        domain: item.domain_from,
-        rank: item.domain_from_rank || item.rank, // Use domain's own rank, fallback to passed rank
-        backlinks_spam_score: item.backlink_spam_score,
-        traffic: trafficMap.get(item.domain_from) || 0, // Real traffic data from DataForSEO Labs API
-        referring_domains: item.referring_domains || 0,
-        backlinks_count: item.backlinks || 0
+        domain: item.normalized_domain, // Use normalized domain for consistency
+        rank: item.rank,
+        backlinks_spam_score: item.backlinks_spam_score,
+        traffic: item.traffic,
+        referring_domains: item.referring_domains,
+        backlinks_count: item.backlinks_count
       }))
       .sort((a: DomainData, b: DomainData) => b.rank - a.rank); // Sort by domain rank
   }
@@ -475,8 +525,11 @@ class RobustAPIClient {
       return false;
     }
     
-    // Check if domain is in the blocklist (includes both www and non-www versions)
-    return COMPETITOR_BLOCKLIST.has(domain.toLowerCase().trim());
+    // Normalize domain for consistent blocking (removes www, protocols, etc.)
+    const normalizedDomain = normalizeDomain(domain);
+    
+    // Check if normalized domain is in the blocklist
+    return COMPETITOR_BLOCKLIST.has(normalizedDomain);
   }
 
   async getHistoricalData(domain: string, startDate: string, endDate: string): Promise<any[]> {
@@ -662,21 +715,26 @@ class RobustAPIClient {
                               domain.endsWith('.au') ||
                               ['bunnings.com', 'stratco.com'].includes(domain); // Known AU companies
           
-          // Skip if this is the client's own domain
-          if (excludeDomain && domain === excludeDomain) {
-            console.log(`🚫 Skipping client domain: ${domain} (can't be competitor to itself)`);
+          // Normalize domain for consistent comparison (consolidate www/non-www)
+          const normalizedDomain = normalizeDomain(domain);
+          const normalizedExcludeDomain = excludeDomain ? normalizeDomain(excludeDomain) : null;
+          
+          // Skip if this is the client's own domain (compare normalized versions)
+          if (excludeDomain && normalizedDomain === normalizedExcludeDomain) {
+            console.log(`🚫 Skipping client domain: ${domain} (normalized: ${normalizedDomain}) - can't be competitor to itself`);
             return;
           }
           
-          // Skip if this is a blocked competitor domain
-          if (this.isBlockedCompetitor(domain)) {
-            console.log(`🚫 Skipping blocked competitor: ${domain} (directory-type domain)`);
+          // Skip if this is a blocked competitor domain (check normalized version)
+          if (this.isBlockedCompetitor(normalizedDomain)) {
+            console.log(`🚫 Skipping blocked competitor: ${domain} (normalized: ${normalizedDomain}) - directory-type domain`);
             return;
           }
           
           if (isAustralian) {
-            competitors.add(domain);
-            console.log(`✅ Australian competitor found: ${domain}`);
+            // Add normalized domain to avoid www/non-www duplicates
+            competitors.add(normalizedDomain);
+            console.log(`✅ Australian competitor found: ${domain} (normalized: ${normalizedDomain})`);
           } else {
             console.log(`❌ Non-Australian competitor skipped: ${domain}`);
           }
@@ -781,6 +839,7 @@ class RobustAPIClient {
     
     // Smaller, more manageable Australian business competitors as fallback
     // Avoid massive domains like seek.com.au, realestate.com.au that cause timeouts
+    // Using normalized domains for consistency
     let fallbackCompetitors = [
       'bunnings.com.au',      // Large but manageable
       'officeworks.com.au',   // Medium-sized retailer
@@ -789,13 +848,20 @@ class RobustAPIClient {
       'coles.com.au'          // Supermarket chain
     ];
     
-    // Filter out client domain if provided
+    // Filter out client domain if provided (compare normalized versions)
     if (excludeDomain) {
-      fallbackCompetitors = fallbackCompetitors.filter(domain => domain !== excludeDomain);
-      console.log(`🚫 Filtered out client domain ${excludeDomain} from fallback competitors`);
+      const normalizedExcludeDomain = normalizeDomain(excludeDomain);
+      const originalLength = fallbackCompetitors.length;
+      fallbackCompetitors = fallbackCompetitors.filter(domain => {
+        const normalizedDomain = normalizeDomain(domain);
+        return normalizedDomain !== normalizedExcludeDomain;
+      });
+      if (fallbackCompetitors.length < originalLength) {
+        console.log(`🚫 Filtered out client domain ${excludeDomain} (normalized: ${normalizedExcludeDomain}) from fallback competitors`);
+      }
     }
     
-    // Filter out blocked competitor domains
+    // Filter out blocked competitor domains (using normalized comparison)
     const originalLength = fallbackCompetitors.length;
     fallbackCompetitors = fallbackCompetitors.filter(domain => !this.isBlockedCompetitor(domain));
     if (fallbackCompetitors.length < originalLength) {
@@ -954,28 +1020,78 @@ class RobustAPIClient {
         return AUTHORITY_CRITERIA.geoRelevance.includes(country);
       });
 
-      console.log(`Pre-filtered ${items.length} items to ${preFilteredDomains.length} domains (before traffic filtering)`);
+      console.log(`Pre-filtered ${items.length} items to ${preFilteredDomains.length} domains (before traffic filtering and consolidation)`);
 
-      // Get real traffic data for pre-filtered domains
-      const domainNames = preFilteredDomains.map((item: any) => item.domain_from);
-      const trafficMap = await this.getBulkTrafficEstimation(domainNames, false);
-
-      // Now apply traffic filtering with real data
-      const filteredDomains = preFilteredDomains.filter((item: any) => {
-        const realTraffic = trafficMap.get(item.domain_from) || 0;
-        return realTraffic >= AUTHORITY_CRITERIA.monthlyTraffic;
+      // Group domains by normalized name to consolidate www/non-www versions
+      const domainGroups = new Map<string, any[]>();
+      
+      preFilteredDomains.forEach((item: any) => {
+        if (item.domain_from) {
+          const normalized = normalizeDomain(item.domain_from);
+          if (!domainGroups.has(normalized)) {
+            domainGroups.set(normalized, []);
+          }
+          domainGroups.get(normalized)!.push(item);
+        }
       });
+      
+      console.log(`Grouped ${preFilteredDomains.length} pre-filtered domains into ${domainGroups.size} unique domains (www/non-www consolidated)`);
 
-      console.log(`Final filtering: ${preFilteredDomains.length} → ${filteredDomains.length} authority domains (after traffic >= ${AUTHORITY_CRITERIA.monthlyTraffic})`);
+      // Get real traffic data for consolidated domains
+      const uniqueNormalizedDomains = Array.from(domainGroups.keys());
+      const domainMappings = new Map<string, string>(); // normalized -> original for API calls
+      
+      for (const [normalizedDomain, domainItems] of domainGroups.entries()) {
+        domainMappings.set(normalizedDomain, domainItems[0].domain_from);
+      }
+      
+      const domainNames = Array.from(domainMappings.values());
+      const rawTrafficMap = await this.getBulkTrafficEstimation(domainNames, false);
+      
+      // Create normalized traffic map for lookups
+      const trafficMap = new Map<string, number>();
+      for (const [normalized, original] of domainMappings.entries()) {
+        trafficMap.set(normalized, rawTrafficMap.get(original) || 0);
+      }
+
+      // Process each domain group and apply traffic filtering
+      const filteredDomains = [];
+      
+      for (const [normalizedDomain, domainItems] of domainGroups.entries()) {
+        // Consolidate metrics across www/non-www versions
+        const consolidatedDomain = {
+          normalized_domain: normalizedDomain,
+          original_domain: domainItems[0].domain_from, // Use first version as display name
+          rank: Math.max(...domainItems.map(d => d.domain_from_rank || d.rank || 0)), // Use highest rank
+          backlinks_spam_score: Math.min(...domainItems.map(d => d.backlink_spam_score || 100)), // Use lowest spam score
+          referring_domains: Math.max(...domainItems.map(d => d.referring_domains || 0)), // Use highest referring domains
+          backlinks_count: domainItems.reduce((sum, d) => sum + (d.backlinks || 0), 0), // Sum backlinks
+          traffic: trafficMap.get(normalizedDomain) || 0,
+          country: this.getCountryFromDomain(domainItems[0].domain_from),
+          variants: domainItems.map(d => d.domain_from) // Track all variants found
+        };
+        
+        // Apply traffic filtering to consolidated domain
+        if (consolidatedDomain.traffic >= AUTHORITY_CRITERIA.monthlyTraffic) {
+          // Log consolidated domains with multiple variants
+          if (consolidatedDomain.variants.length > 1) {
+            console.log(`🔗 Consolidated historical domain: ${normalizedDomain} (variants: ${consolidatedDomain.variants.join(', ')}) - rank: ${consolidatedDomain.rank}, traffic: ${consolidatedDomain.traffic}`);
+          }
+          
+          filteredDomains.push(consolidatedDomain);
+        }
+      }
+
+      console.log(`Final filtering: ${domainGroups.size} unique domains → ${filteredDomains.length} authority domains (after traffic >= ${AUTHORITY_CRITERIA.monthlyTraffic})`);
 
       const domains = filteredDomains.map((item: any) => ({
-        domain: item.domain_from,
-        rank: item.domain_from_rank || item.rank, // Use domain's own rank, fallback to passed rank
-        backlinks_spam_score: item.backlink_spam_score,
-        traffic: trafficMap.get(item.domain_from) || 0, // Real traffic data from DataForSEO Labs API
-        referring_domains: item.referring_domains || 0,
-        backlinks_count: item.backlinks || 0,
-        country: this.getCountryFromDomain(item.domain_from)
+        domain: item.normalized_domain, // Use normalized domain for consistency
+        rank: item.rank,
+        backlinks_spam_score: item.backlinks_spam_score,
+        traffic: item.traffic,
+        referring_domains: item.referring_domains,
+        backlinks_count: item.backlinks_count,
+        country: item.country
       }));
 
       return {
