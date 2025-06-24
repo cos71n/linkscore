@@ -73,6 +73,14 @@ class AnalysisEngine {
     console.log('✅ AnalysisEngine initialized successfully');
   }
 
+  private get shouldBypassCache(): boolean {
+    const bypass = process.env.BYPASS_TRAFFIC_CACHE === 'true';
+    if (bypass) {
+      console.log('🔄 Traffic cache bypass enabled via BYPASS_TRAFFIC_CACHE environment variable');
+    }
+    return bypass;
+  }
+
   async performAnalysis(formData: FormData, request: Request, existingAnalysisId?: string): Promise<AnalysisResult> {
     const startTime = Date.now();
     let analysisId = existingAnalysisId;
@@ -437,7 +445,7 @@ class AnalysisEngine {
       throw new Error('Analysis cancelled by user');
     }
 
-    const clientLinks = await this.apiClient.getAuthorityReferringDomains(formData.domain);
+    const clientLinks = await this.apiClient.getAuthorityReferringDomains(formData.domain, this.shouldBypassCache);
     
     progressCallback({ 
       step: 'client_analysis_complete', 
@@ -667,7 +675,7 @@ class AnalysisEngine {
       durationRange: formData.durationRange
     };
     
-    const performanceData = await this.calculator.calculatePerformanceData(this.apiClient, formData.domain, investmentData);
+    const performanceData = await this.calculator.calculatePerformanceData(this.apiClient, formData.domain, investmentData, this.shouldBypassCache);
     const competitiveData = this.calculator.calculateCompetitiveData(clientLinks, topCompetitorData);
     
     // Convert data to new format for comprehensive LinkScore calculation
@@ -1302,12 +1310,12 @@ class AnalysisEngine {
     gained: number;
   }> {
     // Get current authority links for competitive analysis
-    const domains = await this.apiClient.getAuthorityReferringDomains(competitor);
+    const domains = await this.apiClient.getAuthorityReferringDomains(competitor, this.shouldBypassCache);
     
     // Get historical authority links data for comparison table
     const [currentData, historicalData] = await Promise.all([
-      this.apiClient.getAuthorityLinksByDate(competitor), // Current
-      this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr) // Historical
+      this.apiClient.getAuthorityLinksByDate(competitor, undefined, this.shouldBypassCache), // Current
+      this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr, this.shouldBypassCache) // Historical
     ]);
     
     const currentCount = currentData.authorityLinksCount;

@@ -464,7 +464,8 @@ class LinkScoreCalculator {
   async calculatePerformanceData(
     apiClient: any,
     domain: string,
-    investmentData: InvestmentData
+    investmentData: InvestmentData,
+    bypassCache: boolean = false
   ): Promise<PerformanceData> {
     
     // Expected links = how many they SHOULD have gained during investment period
@@ -484,8 +485,8 @@ class LinkScoreCalculator {
     try {
       // Get authority links at campaign START and NOW using the new method
       const [startData, currentData] = await Promise.all([
-        apiClient.getAuthorityLinksByDate(domain, campaignStartDateStr),
-        apiClient.getAuthorityLinksByDate(domain) // No date filter = current
+        apiClient.getAuthorityLinksByDate(domain, campaignStartDateStr, bypassCache),
+        apiClient.getAuthorityLinksByDate(domain, undefined, bypassCache) // No date filter = current
       ]);
 
       const authorityLinksAtStartCount = startData.authorityLinksCount;

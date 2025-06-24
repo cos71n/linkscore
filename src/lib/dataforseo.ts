@@ -280,7 +280,7 @@ class RobustAPIClient {
       
       try {
         const params = {
-          targets: batch.map(domain => ({ target: domain }))
+          targets: batch
         };
         
         console.log(`Fetching traffic data for batch ${Math.floor(i/batchSize) + 1} (${batch.length} domains)`);
@@ -292,13 +292,14 @@ class RobustAPIClient {
           continue;
         }
         
-        const results = response.tasks[0].result;
+        const result = response.tasks[0].result[0];
+        const items = result.items || [];
         
         // Process results and cache them
-        for (const result of results) {
-          if (result && result.target && typeof result.organic_etv === 'number') {
-            const domain = result.target;
-            const monthlyTraffic = Math.round(result.organic_etv); // Monthly organic traffic
+        for (const item of items) {
+          if (item && item.target && item.metrics && item.metrics.organic && typeof item.metrics.organic.etv === 'number') {
+            const domain = item.target;
+            const monthlyTraffic = Math.round(item.metrics.organic.etv); // Monthly organic traffic
             
             trafficMap.set(domain, monthlyTraffic);
             
@@ -310,9 +311,12 @@ class RobustAPIClient {
             });
             
             console.log(`Traffic data: ${domain} = ${monthlyTraffic} monthly visits`);
-          } else {
-            // If no traffic data available, cache 0 to avoid repeated queries
-            const domain = batch.find(d => d === (result?.target || '')) || batch[0];
+          }
+        }
+        
+        // Cache 0 for any domains that weren't returned in the results
+        for (const domain of batch) {
+          if (!trafficMap.has(domain)) {
             trafficMap.set(domain, 0);
             RobustAPIClient.trafficCache.set(domain, {
               traffic: 0,

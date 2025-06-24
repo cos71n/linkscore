@@ -841,11 +841,7 @@ export default function AnalysisResultsPage() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-blue-600 font-bold">•</span>
-                <span><strong>Domain traffic of 750 visits per month or more</strong></span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-600 font-bold">•</span>
-                <span><strong>Traffic coming from AU/US/UK/NZ/CA markets</strong></span>
+                <span><strong>Domain traffic of 500 visits per month or more</strong></span>
               </li>
             </ul>
           </div>
