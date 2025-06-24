@@ -445,7 +445,7 @@ class AnalysisEngine {
       throw new Error('Analysis cancelled by user');
     }
 
-    const clientLinks = await this.apiClient.getAuthorityReferringDomains(formData.domain, this.shouldBypassCache);
+    const clientLinks = await this.apiClient.getAuthorityReferringDomains(formData.domain);
     
     progressCallback({ 
       step: 'client_analysis_complete', 
@@ -1310,12 +1310,12 @@ class AnalysisEngine {
     gained: number;
   }> {
     // Get current authority links for competitive analysis
-    const domains = await this.apiClient.getAuthorityReferringDomains(competitor, this.shouldBypassCache);
+    const domains = await this.apiClient.getAuthorityReferringDomains(competitor);
     
     // Get historical authority links data for comparison table
     const [currentData, historicalData] = await Promise.all([
-      this.apiClient.getAuthorityLinksByDate(competitor, undefined, this.shouldBypassCache), // Current
-      this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr, this.shouldBypassCache) // Historical
+      this.apiClient.getAuthorityLinksByDate(competitor, undefined), // Current
+      this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr) // Historical
     ]);
     
     const currentCount = currentData.authorityLinksCount;
