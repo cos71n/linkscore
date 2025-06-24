@@ -1312,19 +1312,19 @@ class AnalysisEngine {
     // Get current authority links for competitive analysis
     const domains = await this.apiClient.getAuthorityReferringDomains(competitor);
     
-    // Get historical authority links data for comparison table
-    const [currentData, historicalData] = await Promise.all([
-      this.apiClient.getAuthorityLinksByDate(competitor, undefined), // Current
-      this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr) // Historical
-    ]);
+    // Use the actual domains count for consistency (not separate API call)
+    const currentCount = domains.length;
     
-    const currentCount = currentData.authorityLinksCount;
+    // Get historical authority links data for comparison table
+    const historicalData = await this.apiClient.getAuthorityLinksByDate(competitor, campaignStartDateStr);
     const historicalCount = historicalData.authorityLinksCount;
     const gained = Math.max(0, currentCount - historicalCount);
     
+    console.log(`✅ Competitor ${competitor}: Current ${currentCount} domains (using domains.length), Historical ${historicalCount}, Gained +${gained}`);
+    
     return {
       domains,
-      currentCount,
+      currentCount, // Now uses domains.length for consistency
       historicalCount,
       gained
     };
