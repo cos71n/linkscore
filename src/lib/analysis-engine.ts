@@ -751,6 +751,12 @@ class AnalysisEngine {
       try {
         console.log(`📝 Attempt ${attempt}/${retryAttempts} to finalize analysis ${analysisId}`);
         
+        // CRITICAL FIX: Properly serialize all JSON data for JSONB columns
+        const competitorsJson = JSON.stringify(result.competitors);
+        const linkGapDataJson = JSON.stringify(result.linkGaps.slice(0, 50)); // Store top 50 opportunities  
+        const redFlagsJson = JSON.stringify(result.redFlags);
+        const historicalDataJson = JSON.stringify(result.competitorHistoricalData);
+        
         // Execute raw SQL update to bypass Prisma's prepared statements
         await prisma.$queryRawUnsafe(`
           UPDATE analyses SET
@@ -767,37 +773,37 @@ class AnalysisEngine {
             link_gaps_total = $11,
             link_gaps_high_priority = $12,
             cost_per_authority_link = $13,
-            competitors = $14,
-            link_gap_data = $15,
-            red_flags = $16,
-            historical_data = $17,
+            competitors = $14::jsonb,
+            link_gap_data = $15::jsonb,
+            red_flags = $16::jsonb,
+            historical_data = $17::jsonb,
             processing_time_seconds = $18,
             dataforseo_cost_usd = $19,
             status = $20,
             completed_at = $21
           WHERE id = $22::uuid
         `,
-          result.linkScore.overall,
-          result.linkScore.breakdown.performanceVsExpected,
-          result.linkScore.breakdown.competitivePosition,
-          result.linkScore.breakdown.velocityComparison,
-          result.leadScore.priority,
-          result.leadScore.potential,
-          result.performanceData.authorityLinksGained,
-          result.performanceData.expectedLinks,
-          result.performanceData.currentAuthorityLinks,
-          result.competitiveData.averageCompetitorLinks,
-          result.linkGaps.length,
-          result.linkGaps.filter(gap => gap.rank >= 50).length,
-          result.performanceData.costPerAuthorityLink,
-          JSON.stringify(result.competitors),
-          JSON.stringify(result.linkGaps.slice(0, 50)), // Store top 50 opportunities
-          JSON.stringify(result.redFlags),
-          JSON.stringify(result.competitorHistoricalData),
+          result.linkScore.overall,                              // Overall LinkScore (number)
+          result.linkScore.breakdown.performanceVsExpected,      // Performance component
+          result.linkScore.breakdown.competitivePosition,        // Competitive component  
+          result.linkScore.breakdown.velocityComparison,         // Velocity component
+          result.leadScore.priority,                            // Priority score
+          result.leadScore.potential,                           // Potential score
+          result.performanceData.authorityLinksGained,          // Links gained
+          result.performanceData.expectedLinks,                 // Expected links
+          result.performanceData.currentAuthorityLinks,         // Current links
+          result.competitiveData.averageCompetitorLinks,        // Competitor average
+          result.linkGaps.length,                               // Total opportunities
+          result.linkGaps.filter(gap => gap.rank >= 50).length, // High-priority opportunities
+          result.performanceData.costPerAuthorityLink,          // Cost per link
+          competitorsJson,      // Properly serialized JSON
+          linkGapDataJson,      // Properly serialized JSON
+          redFlagsJson,         // Properly serialized JSON
+          historicalDataJson,   // Properly serialized JSON
           processingTime,
-          result.cost,
+          result.cost,                                          // DataForSEO cost
           'completed',
-          new Date().toISOString(),
+          new Date(),
           analysisId
         );
         
@@ -805,41 +811,27 @@ class AnalysisEngine {
         break; // Success - exit retry loop
         
       } catch (error: any) {
+        console.log(`❌ Finalization attempt ${attempt}/${retryAttempts} failed:`, error.message);
         lastError = error;
-        console.error(`❌ Finalization attempt ${attempt}/${retryAttempts} failed:`, error.message);
         
-        // Check if it's a connection/prepared statement error that might benefit from retry
-        const isRetryableError = error.message.includes('prepared statement') ||
-                                error.message.includes('connection') ||
-                                error.message.includes('pool') ||
-                                error.message.includes('timeout');
-        
-        if (attempt < retryAttempts && isRetryableError) {
-          // Wait with exponential backoff before retry
-          const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-          console.log(`⏳ Retrying finalization in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          
-          // Try to refresh connection pool by doing a simple query
-          try {
-            await prisma.$queryRawUnsafe('SELECT 1');
-            console.log('🔄 Connection pool refreshed');
-          } catch (refreshError) {
-            console.warn('⚠️ Failed to refresh connection:', refreshError);
-          }
-        } else {
-          // Final attempt failed or non-retryable error
-          console.error(`💥 All finalization attempts failed for analysis ${analysisId}`);
-          throw lastError;
+        if (attempt === retryAttempts) {
+          console.log(`💥 All finalization attempts failed for analysis ${analysisId}`);
+          throw error;
         }
+        
+        // Exponential backoff: 2s, 4s, 8s
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        console.log(`⏳ Retrying in ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
       }
     }
 
-    // Clean up progress cache
+    // Clear from memory cache since analysis is complete
     progressCache.delete(analysisId);
-    console.log(`🧹 Progress cache cleaned for analysis ${analysisId}`);
+    console.log(`🗑️ Cleared progress cache for completed analysis ${analysisId}`);
 
-    // Trigger Zapier webhook after successful analysis completion
+    // Trigger webhook notification
+    console.log('🎯 Triggering webhook notification...');
     await this.triggerZapierWebhook(analysisId);
   }
 
