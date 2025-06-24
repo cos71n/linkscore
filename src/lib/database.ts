@@ -49,7 +49,7 @@ export { prisma };
  */
 export async function testDatabaseConnection(): Promise<boolean> {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await prisma.$queryRawUnsafe('SELECT 1');
     console.log('✅ Database connection successful');
     return true;
   } catch (error) {
@@ -76,7 +76,11 @@ export async function disconnectDatabase(): Promise<void> {
 export async function getDatabaseHealth() {
   try {
     const start = Date.now();
-    await prisma.$queryRaw`SELECT 1`;
+    await executeWithTimeout(
+      () => prisma.$queryRawUnsafe('SELECT 1'),
+      5000,
+      'Database health check'
+    );
     const responseTime = Date.now() - start;
     
     return {
@@ -107,12 +111,12 @@ export async function initializeDatabase(): Promise<void> {
     }
     
     // Validate that tables exist
-    const tableCount = await prisma.$queryRaw`
+    const tableCount = await prisma.$queryRawUnsafe(`
       SELECT COUNT(*) as count 
       FROM information_schema.tables 
       WHERE table_schema = 'public' 
       AND table_name IN ('users', 'analyses', 'security_events', 'rate_limits')
-    `;
+    `);
     
     console.log('📊 Database schema validated');
     console.log('✅ Database initialization complete');
@@ -154,21 +158,25 @@ export async function executeWithTimeout<T>(
  */
 export async function killLongRunningQueries(maxDurationMinutes: number = 10): Promise<void> {
   try {
-    const longRunningQueries = await prisma.$queryRaw`
-      SELECT 
-        pid,
-        query,
-        state,
-        query_start,
-        NOW() - query_start as duration
-      FROM pg_stat_activity 
-      WHERE 
-        state = 'active' 
-        AND query NOT LIKE '%pg_stat_activity%'
-        AND NOW() - query_start > INTERVAL '${maxDurationMinutes} minutes'
-        AND query NOT LIKE '%COMMIT%'
-        AND query NOT LIKE '%ROLLBACK%'
-    ` as unknown as any[];
+    const longRunningQueries = await executeWithTimeout(
+      () => prisma.$queryRawUnsafe(`
+        SELECT 
+          pid,
+          query,
+          state,
+          query_start,
+          NOW() - query_start as duration
+        FROM pg_stat_activity 
+        WHERE 
+          state = 'active' 
+          AND query NOT LIKE '%pg_stat_activity%'
+          AND NOW() - query_start > INTERVAL '${maxDurationMinutes} minutes'
+          AND query NOT LIKE '%COMMIT%'
+          AND query NOT LIKE '%ROLLBACK%'
+      `),
+      10000,
+      'Find long-running queries'
+    ) as any[];
 
     for (const query of longRunningQueries) {
       console.warn(`🚨 Killing long-running query (${query.duration}):`, {
@@ -176,11 +184,15 @@ export async function killLongRunningQueries(maxDurationMinutes: number = 10): P
         query: query.query.substring(0, 100)
       });
       
-      try {
-        await prisma.$queryRaw`SELECT pg_terminate_backend(${query.pid})`;
-      } catch (killError) {
-        console.error(`Failed to kill query ${query.pid}:`, killError);
-      }
+              try {
+          await executeWithTimeout(
+            () => prisma.$queryRawUnsafe(`SELECT pg_terminate_backend(${query.pid})`),
+            5000,
+            `Kill query ${query.pid}`
+          );
+        } catch (killError) {
+          console.error(`Failed to kill query ${query.pid}:`, killError);
+        }
     }
 
     if (longRunningQueries.length > 0) {
@@ -231,7 +243,7 @@ export async function cleanupStuckAnalyses(maxAgeMinutes: number = 15): Promise<
         'Update stuck analyses'
       );
 
-      console.log(`✅ Cleaned up ${updateResult.count} stuck analyses`);
+      console.log(`✅ Cleaned up ${Number(updateResult.count)} stuck analyses`);
       
       // Log the cleanup for monitoring
       for (const analysis of stuckAnalyses) {
@@ -250,38 +262,60 @@ export async function cleanupStuckAnalyses(maxAgeMinutes: number = 15): Promise<
  */
 export async function getDatabaseResourceUsage() {
   try {
+    // Use executeWithTimeout to add resilience to all queries
     const [connections, activeQueries, databaseSize] = await Promise.all([
       // Active connections
-      prisma.$queryRaw`
-        SELECT 
-          count(*) as total_connections,
-          count(*) FILTER (WHERE state = 'active') as active_connections,
-          count(*) FILTER (WHERE state = 'idle') as idle_connections
-        FROM pg_stat_activity 
-        WHERE datname = current_database()
-      ` as unknown as any[],
+      executeWithTimeout(
+        () => prisma.$queryRawUnsafe(`
+          SELECT 
+            count(*) as total_connections,
+            count(*) FILTER (WHERE state = 'active') as active_connections,
+            count(*) FILTER (WHERE state = 'idle') as idle_connections
+          FROM pg_stat_activity 
+          WHERE datname = current_database()
+        `),
+        5000,
+        'Get connection stats'
+      ),
       
       // Long-running queries
-      prisma.$queryRaw`
-        SELECT 
-          count(*) as long_running_queries
-        FROM pg_stat_activity 
-        WHERE 
-          state = 'active' 
-          AND query NOT LIKE '%pg_stat_activity%'
-          AND NOW() - query_start > INTERVAL '5 minutes'
-      ` as unknown as any[],
+      executeWithTimeout(
+        () => prisma.$queryRawUnsafe(`
+          SELECT 
+            count(*) as long_running_queries
+          FROM pg_stat_activity 
+          WHERE 
+            state = 'active' 
+            AND query NOT LIKE '%pg_stat_activity%'
+            AND NOW() - query_start > INTERVAL '5 minutes'
+        `),
+        5000,
+        'Get long-running queries'
+      ),
       
       // Database size
-      prisma.$queryRaw`
-        SELECT pg_size_pretty(pg_database_size(current_database())) as database_size
-      ` as unknown as any[]
+      executeWithTimeout(
+        () => prisma.$queryRawUnsafe(`
+          SELECT pg_size_pretty(pg_database_size(current_database())) as database_size
+        `),
+        5000,
+        'Get database size'
+      )
     ]);
 
+    // Type assertion for the results
+    const connectionsResult = connections as any[];
+    const activeQueriesResult = activeQueries as any[];
+    const databaseSizeResult = databaseSize as any[];
+
     return {
-      connections: connections[0],
-      longRunningQueries: activeQueries[0].long_running_queries,
-      databaseSize: databaseSize[0].database_size,
+      connections: {
+        total_connections: Number(connectionsResult[0].total_connections),
+        active_connections: Number(connectionsResult[0].active_connections),
+        idle_connections: Number(connectionsResult[0].idle_connections)
+      },
+      longRunningQueries: Number(activeQueriesResult[0].long_running_queries),
+      databaseSize: databaseSizeResult[0].database_size,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
