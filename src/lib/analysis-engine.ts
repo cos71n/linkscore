@@ -775,7 +775,7 @@ class AnalysisEngine {
             dataforseo_cost_usd = $19,
             status = $20,
             completed_at = $21
-          WHERE id = $22
+          WHERE id = $22::uuid
         `,
           result.linkScore.overall,
           result.linkScore.breakdown.performanceVsExpected,
@@ -987,7 +987,7 @@ class AnalysisEngine {
           UPDATE analyses SET
             status = $1,
             error_message = $2
-          WHERE id = $3
+          WHERE id = $3::uuid
         `,
           'processing', // Keep status as 'processing' for proper retrieval
           JSON.stringify(progressData), // Store full progress data in errorMessage temporarily
@@ -1021,7 +1021,7 @@ class AnalysisEngine {
         UPDATE analyses SET
           status = $1,
           error_message = $2
-        WHERE id = $3
+        WHERE id = $3::uuid
       `,
         'failed',
         errorMessage,
@@ -1174,16 +1174,20 @@ class AnalysisEngine {
     }
     
     // Fall back to database for completed/failed analyses or when no cache
-    const analysis = await prisma.analysis.findUnique({
-      where: { id: analysisId },
-      select: { status: true, errorMessage: true }
-    });
+    // Use raw SQL to avoid prepared statement conflicts
+    const analysisRows = await prisma.$queryRawUnsafe(`
+      SELECT id, status, error_message 
+      FROM analyses 
+      WHERE id = $1::uuid
+    `, analysisId) as any[];
     
-    if (!analysis) {
+    if (!analysisRows || analysisRows.length === 0) {
       throw new Error('Analysis not found');
     }
     
-    console.log(`📊 Status check for ${analysisId}: status=${analysis.status}, hasErrorMessage=${!!analysis.errorMessage}`);
+    const analysis = analysisRows[0];
+    
+    console.log(`📊 Status check for ${analysisId}: status=${analysis.status}, hasErrorMessage=${!!analysis.error_message}`);
     
     // For completed or failed status, return straightforward response
     if (analysis.status === 'completed') {
@@ -1200,7 +1204,7 @@ class AnalysisEngine {
       progressCache.delete(analysisId);
       return {
         status: 'failed',
-        message: analysis.errorMessage || 'Analysis failed'
+        message: analysis.error_message || 'Analysis failed'
       };
     }
     
@@ -1214,9 +1218,9 @@ class AnalysisEngine {
     }
     
     // For processing status, try to parse detailed progress data from database
-    if (analysis.status === 'processing' && analysis.errorMessage) {
+    if (analysis.status === 'processing' && analysis.error_message) {
       try {
-        const progressData = JSON.parse(analysis.errorMessage);
+        const progressData = JSON.parse(analysis.error_message);
         console.log(`📈 Parsed progress data from database:`, progressData);
         return {
           status: 'processing',
@@ -1225,7 +1229,7 @@ class AnalysisEngine {
           progressData: progressData
         };
       } catch (e) {
-        console.warn('Failed to parse progress data:', e, 'Raw errorMessage:', analysis.errorMessage);
+        console.warn('Failed to parse progress data:', e, 'Raw errorMessage:', analysis.error_message);
         // Fall through to default processing message
       }
     }
