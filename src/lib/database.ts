@@ -15,12 +15,28 @@ const getDatabaseUrl = () => {
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) return baseUrl;
   
-  // Add connection pooling parameters for dedicated transaction pooler (paid plan)
+  // Enhanced connection pooling parameters for paid Supabase plan
   const url = new URL(baseUrl);
-  url.searchParams.set('connection_limit', '20'); // Higher limit for paid plan
-  url.searchParams.set('pool_timeout', '60'); // Longer timeout for busy periods
-  url.searchParams.set('pool_mode', 'transaction'); // Use dedicated transaction pooler
-  url.searchParams.set('statement_cache_size', '0'); // Disable statement caching to prevent conflicts
+  
+  // Core pooling settings optimized for concurrent users
+  url.searchParams.set('connection_limit', '25'); // Higher limit for paid plan (up from 20)
+  url.searchParams.set('pool_timeout', '90'); // Increased timeout for high concurrency
+  url.searchParams.set('pool_mode', 'transaction'); // Use dedicated transaction pooler (port 6543)
+  
+  // Statement caching and prepared statement optimization
+  url.searchParams.set('statement_cache_size', '0'); // Disable statement caching completely
+  url.searchParams.set('prepared_statements', 'false'); // Disable prepared statements in pool
+  
+  // Connection management for high concurrency
+  url.searchParams.set('application_name', 'LinkScore_Production'); // Identify our app in connection logs
+  url.searchParams.set('connect_timeout', '30'); // Connection establishment timeout
+  url.searchParams.set('idle_timeout', '300'); // 5 minutes idle timeout to recycle connections
+  
+  // Performance optimizations for paid plan
+  url.searchParams.set('max_lifetime', '3600'); // 1 hour max connection lifetime
+  url.searchParams.set('pool_pre_ping', 'true'); // Validate connections before use
+  
+  console.log('🔗 Database URL configured for paid Supabase with high concurrency support');
   
   return url.toString();
 };
@@ -367,6 +383,99 @@ export function startResourceMonitoring(): void {
       console.error('❌ Resource monitoring failed:', error);
     }
   }, 15 * 60 * 1000); // Every 15 minutes
+}
+
+/**
+ * Warm up database connections for optimal concurrent performance
+ * Particularly useful for paid Supabase plans with higher connection limits
+ */
+export async function warmupConnections(targetConnections: number = 5): Promise<void> {
+  try {
+    console.log(`🔥 Warming up ${targetConnections} database connections...`);
+    
+    // Create multiple concurrent connections to pre-populate the pool
+    const warmupPromises = Array.from({ length: targetConnections }, async (_, index) => {
+      try {
+        await executeWithTimeout(
+          () => prisma.$queryRawUnsafe(`SELECT ${index + 1} as connection_test`),
+          5000,
+          `Connection warmup ${index + 1}`
+        );
+        return true;
+      } catch (error) {
+        console.warn(`⚠️ Connection warmup ${index + 1} failed:`, error);
+        return false;
+      }
+    });
+    
+    const results = await Promise.all(warmupPromises);
+    const successCount = results.filter(Boolean).length;
+    
+    console.log(`✅ Connection warmup complete: ${successCount}/${targetConnections} connections established`);
+    
+    if (successCount < targetConnections * 0.7) {
+      console.warn('🚨 Connection warmup below 70% success rate - check database configuration');
+    }
+    
+  } catch (error) {
+    console.error('❌ Connection warmup failed:', error);
+  }
+}
+
+/**
+ * Monitor connection pool health for concurrent operations
+ */
+export async function getConnectionPoolHealth() {
+  try {
+    const start = Date.now();
+    
+    // Test connection pool responsiveness
+    const connectionTest = await executeWithTimeout(
+      () => prisma.$queryRawUnsafe(`
+        SELECT 
+          current_database() as database_name,
+          current_user as user_name,
+          version() as server_version,
+          NOW() as server_time
+      `),
+      10000,
+      'Connection pool health check'
+    );
+    
+    const responseTime = Date.now() - start;
+    
+    // Get active connection information
+    const connectionStats = await executeWithTimeout(
+      () => prisma.$queryRawUnsafe(`
+        SELECT 
+          application_name,
+          state,
+          COUNT(*) as connection_count
+        FROM pg_stat_activity 
+        WHERE datname = current_database()
+        GROUP BY application_name, state
+        ORDER BY connection_count DESC
+      `),
+      5000,
+      'Connection statistics'
+    ) as any[];
+    
+    return {
+      status: 'healthy',
+      responseTime: `${responseTime}ms`,
+      connectionStats,
+      timestamp: new Date().toISOString(),
+      recommendations: responseTime > 2000 ? ['Consider connection pool optimization'] : []
+    };
+    
+  } catch (error) {
+    return {
+      status: 'unhealthy',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+      recommendations: ['Check database connectivity', 'Review connection pool settings']
+    };
+  }
 }
 
 // Clean up on process exit

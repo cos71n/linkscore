@@ -741,38 +741,103 @@ class AnalysisEngine {
   }
 
   private async finalizeAnalysis(analysisId: string, result: Omit<AnalysisResult, 'id' | 'processingTime'>, processingTime: number) {
-    await prisma.analysis.update({
-      where: { id: analysisId },
-      data: {
-        linkScore: result.linkScore.overall,
-        performanceScore: result.linkScore.breakdown.performanceVsExpected,
-        competitiveScore: result.linkScore.breakdown.competitivePosition,
-        opportunityScore: result.linkScore.breakdown.velocityComparison,
-        priorityScore: result.leadScore.priority,
-        potentialScore: result.leadScore.potential,
+    console.log(`🏁 Finalizing analysis ${analysisId} with raw SQL approach...`);
+    
+    // Use raw SQL to bypass prepared statement issues in Supabase connection pooler
+    const retryAttempts = 3;
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= retryAttempts; attempt++) {
+      try {
+        console.log(`📝 Attempt ${attempt}/${retryAttempts} to finalize analysis ${analysisId}`);
         
-        // Metrics
-        authorityLinksGained: result.performanceData.authorityLinksGained,
-        expectedLinks: result.performanceData.expectedLinks,
-        currentAuthorityLinks: result.performanceData.currentAuthorityLinks,
-        competitorAverageLinks: result.competitiveData.averageCompetitorLinks,
-        linkGapsTotal: result.linkGaps.length,
-        linkGapsHighPriority: result.linkGaps.filter(gap => gap.rank >= 50).length,
-        costPerAuthorityLink: result.performanceData.costPerAuthorityLink,
+        // Execute raw SQL update to bypass Prisma's prepared statements
+        await prisma.$queryRawUnsafe(`
+          UPDATE analyses SET
+            link_score = $1,
+            performance_score = $2,
+            competitive_score = $3,
+            opportunity_score = $4,
+            priority_score = $5,
+            potential_score = $6,
+            authority_links_gained = $7,
+            expected_links = $8,
+            current_authority_links = $9,
+            competitor_average_links = $10,
+            link_gaps_total = $11,
+            link_gaps_high_priority = $12,
+            cost_per_authority_link = $13,
+            competitors = $14,
+            link_gap_data = $15,
+            red_flags = $16,
+            historical_data = $17,
+            processing_time_seconds = $18,
+            dataforseo_cost_usd = $19,
+            status = $20,
+            completed_at = $21
+          WHERE id = $22
+        `,
+          result.linkScore.overall,
+          result.linkScore.breakdown.performanceVsExpected,
+          result.linkScore.breakdown.competitivePosition,
+          result.linkScore.breakdown.velocityComparison,
+          result.leadScore.priority,
+          result.leadScore.potential,
+          result.performanceData.authorityLinksGained,
+          result.performanceData.expectedLinks,
+          result.performanceData.currentAuthorityLinks,
+          result.competitiveData.averageCompetitorLinks,
+          result.linkGaps.length,
+          result.linkGaps.filter(gap => gap.rank >= 50).length,
+          result.performanceData.costPerAuthorityLink,
+          JSON.stringify(result.competitors),
+          JSON.stringify(result.linkGaps.slice(0, 50)), // Store top 50 opportunities
+          JSON.stringify(result.redFlags),
+          JSON.stringify(result.competitorHistoricalData),
+          processingTime,
+          result.cost,
+          'completed',
+          new Date().toISOString(),
+          analysisId
+        );
         
-        // JSON data
-        competitors: result.competitors,
-        linkGapData: result.linkGaps.slice(0, 50) as any, // Store top 50 opportunities
-        redFlags: result.redFlags as any,
-        historicalData: result.competitorHistoricalData,
+        console.log(`✅ Analysis ${analysisId} finalized successfully on attempt ${attempt}`);
+        break; // Success - exit retry loop
         
-        // Metadata
-        processingTimeSeconds: processingTime,
-        dataforseoCostUsd: result.cost,
-        status: 'completed',
-        completedAt: new Date()
+      } catch (error: any) {
+        lastError = error;
+        console.error(`❌ Finalization attempt ${attempt}/${retryAttempts} failed:`, error.message);
+        
+        // Check if it's a connection/prepared statement error that might benefit from retry
+        const isRetryableError = error.message.includes('prepared statement') ||
+                                error.message.includes('connection') ||
+                                error.message.includes('pool') ||
+                                error.message.includes('timeout');
+        
+        if (attempt < retryAttempts && isRetryableError) {
+          // Wait with exponential backoff before retry
+          const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          console.log(`⏳ Retrying finalization in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          
+          // Try to refresh connection pool by doing a simple query
+          try {
+            await prisma.$queryRawUnsafe('SELECT 1');
+            console.log('🔄 Connection pool refreshed');
+          } catch (refreshError) {
+            console.warn('⚠️ Failed to refresh connection:', refreshError);
+          }
+        } else {
+          // Final attempt failed or non-retryable error
+          console.error(`💥 All finalization attempts failed for analysis ${analysisId}`);
+          throw lastError;
+        }
       }
-    });
+    }
+
+    // Clean up progress cache
+    progressCache.delete(analysisId);
+    console.log(`🧹 Progress cache cleaned for analysis ${analysisId}`);
 
     // Trigger Zapier webhook after successful analysis completion
     await this.triggerZapierWebhook(analysisId);
@@ -916,17 +981,23 @@ class AnalysisEngine {
     if (shouldUpdateDB) {
       try {
         console.log('💾 Updating database with milestone progress...');
-        await prisma.analysis.update({
-          where: { id: analysisId },
-          data: {
-            status: 'processing', // Keep status as 'processing' for proper retrieval
-            errorMessage: JSON.stringify(progressData) // Store full progress data in errorMessage temporarily
-          }
-        });
+        
+        // Use raw SQL to avoid prepared statement conflicts
+        await prisma.$queryRawUnsafe(`
+          UPDATE analyses SET
+            status = $1,
+            error_message = $2
+          WHERE id = $3
+        `,
+          'processing', // Keep status as 'processing' for proper retrieval
+          JSON.stringify(progressData), // Store full progress data in errorMessage temporarily
+          analysisId
+        );
+        
         console.log('✅ Database milestone update successful');
       } catch (err) {
         console.error('❌ Failed to update analysis progress in database:', err);
-        // Continue execution even if DB update fails
+        // Continue execution even if DB update fails - progress is still cached in memory
       }
     } else {
       console.log('📝 Progress cached in memory (skipping database write)');
@@ -941,15 +1012,27 @@ class AnalysisEngine {
       return;
     }
     
+    console.log(`🔧 Handling analysis error for ID: ${analysisId}`);
     const errorMessage = this.getUserFriendlyErrorMessage(error);
     
-    await prisma.analysis.update({
-      where: { id: analysisId },
-      data: {
-        status: 'failed',
-        errorMessage
-      }
-    });
+    try {
+      // Use raw SQL to avoid prepared statement conflicts
+      await prisma.$queryRawUnsafe(`
+        UPDATE analyses SET
+          status = $1,
+          error_message = $2
+        WHERE id = $3
+      `,
+        'failed',
+        errorMessage,
+        analysisId
+      );
+      
+      console.log('✅ Analysis error handled successfully');
+    } catch (updateError) {
+      console.error('❌ Failed to update analysis error status:', updateError);
+      // Still continue with logging and cleanup
+    }
     
     // Log error for monitoring - use a valid IP address or skip IP logging if unknown
     try {
