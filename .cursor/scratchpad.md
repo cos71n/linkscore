@@ -85,6 +85,23 @@ const AUTHORITY_CRITERIA = {
 **Time**: 20 minutes (completed faster than estimated)
 **Rationale**: Directory sites like yellowpages.com.au and localsearch.com.au are not true competitors and skew analysis results
 
+### Task 7: Mobile Hamburger Menu UX Fix (Mobile Enhancement) ✅ COMPLETE
+**Goal**: Fix floating navigation menu covering page content on mobile devices
+**Time**: 15 minutes (completed efficiently)
+**Rationale**: Floating menu was always visible and covering important content, especially on mobile
+
+#### High-level Task Breakdown:
+- [x] **Subtask 7.1**: Add scroll detection state management (10 min) ✅ COMPLETE
+  - ✅ Added showFloatingMenu state variable 
+  - ✅ Implemented useEffect hook with scroll event listener
+  - ✅ Set 100px scroll threshold for menu visibility
+  - **Success Criteria**: ✅ Menu visibility controlled by scroll position
+- [x] **Subtask 7.2**: Implement smooth visibility transitions (5 min) ✅ COMPLETE
+  - ✅ Added opacity and transform transitions (300ms ease-in-out)
+  - ✅ Added pointer-events-none when hidden
+  - ✅ Tested build compilation successfully
+  - **Success Criteria**: ✅ Smooth, professional animation for menu show/hide
+
 #### High-level Task Breakdown:
 - [x] **Subtask 6.1**: Create competitor domain blocklist (15 min) ✅ COMPLETE
   - ✅ Added COMPETITOR_BLOCKLIST constant with 9 directory-type domains
@@ -410,6 +427,18 @@ const AUSTRALIAN_LOCATIONS = {
 
 ## Executor's Feedback or Assistance Requests (Current Only)
 
+### ✅ **TASK COMPLETED** - Mobile Hamburger Menu UX Fix
+
+**Status**: Task 7 COMPLETE - Fixed floating hamburger menu UX on mobile
+**Goal**: ✅ Hide hamburger menu when user is at top of page, show only when scrolling down
+**Implementation Details**:
+- ✅ Added scroll detection with showFloatingMenu state variable
+- ✅ Implemented smooth opacity and transform transitions (300ms ease-in-out)
+- ✅ Menu appears only after scrolling 100px down from top
+- ✅ Menu disappears when user returns to top of page
+- ✅ Added pointer-events-none when hidden to prevent interaction
+**Result**: Mobile users no longer have floating menu covering page content at top, significantly improved mobile UX
+
 ### ✅ **TASK COMPLETED** - Competitor Domain Blocking Implementation
 
 **Status**: Task 6 COMPLETE - Successfully implemented competitor domain blocking
@@ -529,6 +558,14 @@ competitors = $14::jsonb,    // Properly serialized JSON + casting
 - **Logging Strategy**: Log all blocked domains with clear reasoning for transparency and debugging
 - **Maintenance**: Keep blocklist as exportable constant for potential use in other analysis components
 - **Business Impact**: Filtering directory domains significantly improves competitive analysis accuracy and lead quality
+
+### Mobile UX Floating Elements (NEW)
+- **Scroll-Based Visibility**: Floating navigation/action elements should only appear when user scrolls, not at page top
+- **Implementation Pattern**: Use scroll event listener with useState to control visibility based on scroll position (e.g., >100px)
+- **Smooth Transitions**: Always include CSS transitions for professional UX (300ms ease-in-out recommended)
+- **Interaction Control**: Use pointer-events-none when hidden to prevent unintended interactions
+- **Mobile Priority**: 70%+ mobile traffic requires mobile-first consideration for all floating elements
+- **Performance**: Remove scroll event listeners in useEffect cleanup to prevent memory leaks
 
 ---
 

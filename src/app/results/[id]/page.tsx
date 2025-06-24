@@ -73,6 +73,7 @@ export default function AnalysisResultsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showFloatingMenu, setShowFloatingMenu] = useState(false);
 
   useEffect(() => {
     const fetchResults = async () => {
@@ -114,6 +115,23 @@ export default function AnalysisResultsPage() {
       fetchResults();
     }
   }, [params.id]);
+
+  // Handle scroll-based floating menu visibility
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      setShowFloatingMenu(scrollTop > 100); // Show menu after scrolling 100px down
+    };
+
+    // Add scroll event listener
+    window.addEventListener('scroll', handleScroll);
+    
+    // Check initial scroll position
+    handleScroll();
+
+    // Cleanup
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   if (loading) {
     return (
@@ -222,7 +240,9 @@ export default function AnalysisResultsPage() {
         </header>
 
         {/* Floating Navigation Menu */}
-        <div className="fixed top-4 right-4 z-50">
+        <div className={`fixed top-4 right-4 z-50 transition-all duration-300 ease-in-out ${
+          showFloatingMenu ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
+        }`}>
           <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-2">
             {/* Desktop Menu */}
             <div className="hidden sm:flex flex-col gap-1">
