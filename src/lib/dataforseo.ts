@@ -465,14 +465,17 @@ class RobustAPIClient {
       
       // Apply filtering to consolidated domain
       if (consolidatedDomain.backlinks_spam_score > AUTHORITY_CRITERIA.spamScore) {
+        console.log(`❌ ${normalizedDomain} filtered out: spam score ${consolidatedDomain.backlinks_spam_score} > ${AUTHORITY_CRITERIA.spamScore}`);
         continue;
       }
       
       if (consolidatedDomain.rank < AUTHORITY_CRITERIA.domainRank) {
+        console.log(`❌ ${normalizedDomain} filtered out: rank ${consolidatedDomain.rank} < ${AUTHORITY_CRITERIA.domainRank}`);
         continue;
       }
       
       if (consolidatedDomain.traffic < AUTHORITY_CRITERIA.monthlyTraffic) {
+        console.log(`❌ ${normalizedDomain} filtered out: traffic ${consolidatedDomain.traffic} < ${AUTHORITY_CRITERIA.monthlyTraffic}`);
         continue;
       }
       
@@ -933,202 +936,113 @@ class RobustAPIClient {
 
   async getAuthorityLinksByDate(
     domain: string, 
-    beforeDate?: string // format: "2024-09-01 00:00:00 +00:00"
+    beforeDate?: string // format: "2024-09-01"
   ): Promise<{ authorityLinksCount: number; domains: DomainData[] }> {
-    // Build filters for authority referring domains
-    const filters: any[] = [
-      // No rank filter at API level - get all referring domains and filter in code
-      // Note: backlinks_spam_score filtering applied in code since API doesn't support it
-      // Note: first_seen date filtering may not be supported by referring_domains endpoint
-    ];
-
-    // For historical analysis, we'll try date filtering but may need to fallback
-    if (beforeDate) {
-      // Try adding first_seen filter - if it fails, we'll handle in catch block
-      filters.push(['first_seen', '<=', beforeDate]);
+    
+    if (!beforeDate) {
+      // For current data, use the standard method
+      const domains = await this.getAuthorityReferringDomains(domain);
+      return {
+        authorityLinksCount: domains.length,
+        domains
+      };
     }
 
-    const params: any = {
-      target: domain,
-      mode: "one_per_domain", // Get one backlink per domain to get domain authority
-      exclude_internal_backlinks: true,
-      limit: 1000, // We get sample data but use totalCount for the real number
-      order_by: ['domain_from_rank,desc'], // Sort by domain's own rank
-      rank_scale: "one_hundred" // Use 0-100 scale to match Ahrefs DR
-    };
-
-    // Only add filters if we have any
-    if (filters.length > 0) {
-      params.filters = filters;
-    }
-
-    console.log(`DataForSEO API Request: /backlinks/backlinks/live`, {
-      params,
-      beforeDate: beforeDate || 'current',
-      attempt: 1
-    });
-
+    // For historical data, get ACTUAL historical referring domains and apply current filters
+    console.log(`📅 Getting REAL historical referring domains for ${domain} before ${beforeDate}`);
+    
     try {
-      const response = await this.makeRequest('/backlinks/backlinks/live', params);
+      // Use history endpoint to get actual domains that were linking historically  
+      const params = {
+        target: domain,
+        date_from: "2019-01-01",
+        date_to: beforeDate,
+        include_subdomains: true,
+        rank_scale: "one_hundred"
+      };
+      
+      console.log(`📊 Fetching historical referring domains from 2019-01-01 to ${beforeDate}`);
+      
+      const response = await this.makeRequest('/backlinks/history/live', params);
       
       if (!response.tasks || 
           !response.tasks[0] || 
           !response.tasks[0].result || 
-          !response.tasks[0].result[0]) {
-        console.log('DataForSEO API returned empty result for authority referring domains by date');
+          !response.tasks[0].result[0] || 
+          !response.tasks[0].result[0].items) {
+        console.log('❌ No historical referring domains available');
         return { authorityLinksCount: 0, domains: [] };
       }
-
-      const result = response.tasks[0].result[0];
-      const items = result.items || [];
-      const totalCount = result.total_count || 0; // This counts REFERRING DOMAINS (correct!)
       
-      console.log(`DataForSEO API Success: /backlinks/backlinks/live`, {
-        itemsReturned: items.length,
-        totalCount,
-        beforeDate: beforeDate || 'current',
-        cost: response.cost
-      });
-
-      // Apply spam score, geographic and domain authority filtering in code (but not traffic yet)
-      const preFilteredDomains = items.filter((item: any) => {
-        // Skip items without a valid domain name
-        if (!item.domain_from) {
-          return false;
-        }
-        
-        // Apply spam score filter in code since API doesn't support it
-        if (item.backlink_spam_score > AUTHORITY_CRITERIA.spamScore) {
-          return false;
-        }
-        
-        // If domain_from_rank exists and is different from rank, prioritize domain_from_rank
-        const domainAuthority = item.domain_from_rank || item.rank;
-        const linkAuthority = item.rank; // Authority passed to target
-        
-        // Log when we find domains with high own authority but low passed authority
-        if (item.domain_from_rank && item.domain_from_rank !== item.rank && item.domain_from_rank >= AUTHORITY_CRITERIA.domainRank) {
-          console.log(`🎯 Found high-authority domain: ${item.domain_from} (DR: ${item.domain_from_rank}, Passes: ${item.rank})`);
-        }
-        
-        if (domainAuthority < AUTHORITY_CRITERIA.domainRank) {
-          return false;
-        }
-        
-        // Geographic filtering - prioritize Australian domains
-        const country = this.getCountryFromDomain(item.domain_from);
-        return AUTHORITY_CRITERIA.geoRelevance.includes(country);
-      });
-
-      console.log(`Pre-filtered ${items.length} items to ${preFilteredDomains.length} domains (before traffic filtering and consolidation)`);
-
-      // Group domains by normalized name to consolidate www/non-www versions
-      const domainGroups = new Map<string, any[]>();
+      const historyItems = response.tasks[0].result[0].items;
+      console.log(`📊 Retrieved ${historyItems.length} historical snapshots`);
       
-      preFilteredDomains.forEach((item: any) => {
-        if (item.domain_from) {
-          const normalized = normalizeDomain(item.domain_from);
-          if (!domainGroups.has(normalized)) {
-            domainGroups.set(normalized, []);
-          }
-          domainGroups.get(normalized)!.push(item);
+      // Find the snapshot closest to beforeDate
+      const targetDate = new Date(beforeDate);
+      let closestSnapshot = null;
+      let smallestDiff = Infinity;
+      
+      for (const snapshot of historyItems) {
+        const snapshotDate = new Date(snapshot.date);
+        const diff = Math.abs(targetDate.getTime() - snapshotDate.getTime());
+        
+        if (diff < smallestDiff) {
+          smallestDiff = diff;
+          closestSnapshot = snapshot;
         }
-      });
-      
-      console.log(`Grouped ${preFilteredDomains.length} pre-filtered domains into ${domainGroups.size} unique domains (www/non-www consolidated)`);
-
-      // Get real traffic data for consolidated domains
-      const uniqueNormalizedDomains = Array.from(domainGroups.keys());
-      const domainMappings = new Map<string, string>(); // normalized -> original for API calls
-      
-      for (const [normalizedDomain, domainItems] of domainGroups.entries()) {
-        domainMappings.set(normalizedDomain, domainItems[0].domain_from);
       }
       
-      const domainNames = Array.from(domainMappings.values());
-      const rawTrafficMap = await this.getBulkTrafficEstimation(domainNames, false);
-      
-      // Create normalized traffic map for lookups
-      const trafficMap = new Map<string, number>();
-      for (const [normalized, original] of domainMappings.entries()) {
-        trafficMap.set(normalized, rawTrafficMap.get(original) || 0);
+      if (!closestSnapshot || !closestSnapshot.referring_domains_list) {
+        console.log('❌ No referring domains list in historical snapshot');
+        return { authorityLinksCount: 0, domains: [] };
       }
-
-      // Process each domain group and apply traffic filtering
-      const filteredDomains = [];
       
-      for (const [normalizedDomain, domainItems] of domainGroups.entries()) {
-        // Consolidate metrics across www/non-www versions
-        const consolidatedDomain = {
-          normalized_domain: normalizedDomain,
-          original_domain: domainItems[0].domain_from, // Use first version as display name
-          rank: Math.max(...domainItems.map(d => d.domain_from_rank || d.rank || 0)), // Use highest rank
-          backlinks_spam_score: Math.min(...domainItems.map(d => d.backlink_spam_score || 100)), // Use lowest spam score
-          referring_domains: Math.max(...domainItems.map(d => d.referring_domains || 0)), // Use highest referring domains
-          backlinks_count: domainItems.reduce((sum, d) => sum + (d.backlinks || 0), 0), // Sum backlinks
-          traffic: trafficMap.get(normalizedDomain) || 0,
-          country: this.getCountryFromDomain(domainItems[0].domain_from),
-          variants: domainItems.map(d => d.domain_from) // Track all variants found
-        };
+      const historicalDomainList = closestSnapshot.referring_domains_list;
+      console.log(`📊 Found ${historicalDomainList.length} historical referring domains on ${closestSnapshot.date}`);
+      
+      // Get traffic data for historical domains to apply current filters
+      const domainNames = historicalDomainList.map((d: any) => d.domain).filter((d: string) => d);
+      const trafficMap = await this.getBulkTrafficEstimation(domainNames, false);
+      
+      // Apply current filtering criteria to historical domains
+      const filteredHistoricalDomains = [];
+      
+      for (const domainData of historicalDomainList) {
+        if (!domainData.domain) continue;
         
-        // Apply traffic filtering to consolidated domain
-        if (consolidatedDomain.traffic >= AUTHORITY_CRITERIA.monthlyTraffic) {
-          // Log consolidated domains with multiple variants
-          if (consolidatedDomain.variants.length > 1) {
-            console.log(`🔗 Consolidated historical domain: ${normalizedDomain} (variants: ${consolidatedDomain.variants.join(', ')}) - rank: ${consolidatedDomain.rank}, traffic: ${consolidatedDomain.traffic}`);
-          }
+        const normalizedDomain = normalizeDomain(domainData.domain);
+        const currentTraffic = trafficMap.get(domainData.domain) || 0;
+        
+        // Apply current filters to historical domain
+        if (domainData.rank >= AUTHORITY_CRITERIA.domainRank &&
+            domainData.backlinks_spam_score <= AUTHORITY_CRITERIA.spamScore &&
+            currentTraffic >= AUTHORITY_CRITERIA.monthlyTraffic) {
           
-          filteredDomains.push(consolidatedDomain);
+          const country = this.getCountryFromDomain(domainData.domain);
+          if (AUTHORITY_CRITERIA.geoRelevance.includes(country)) {
+            filteredHistoricalDomains.push({
+              domain: normalizedDomain,
+              rank: domainData.rank,
+              backlinks_spam_score: domainData.backlinks_spam_score,
+              traffic: currentTraffic,
+              referring_domains: domainData.referring_domains || 0,
+              backlinks_count: domainData.backlinks || 0,
+              country: country
+            });
+          }
         }
       }
-
-      console.log(`Final filtering: ${domainGroups.size} unique domains → ${filteredDomains.length} authority domains (after traffic >= ${AUTHORITY_CRITERIA.monthlyTraffic})`);
-
-      const domains = filteredDomains.map((item: any) => ({
-        domain: item.normalized_domain, // Use normalized domain for consistency
-        rank: item.rank,
-        backlinks_spam_score: item.backlinks_spam_score,
-        traffic: item.traffic,
-        referring_domains: item.referring_domains,
-        backlinks_count: item.backlinks_count,
-        country: item.country
-      }));
-
+      
+      console.log(`📊 REAL HISTORICAL FILTERING: ${historicalDomainList.length} historical domains → ${filteredHistoricalDomains.length} pass current authority filters`);
+      
       return {
-        authorityLinksCount: filteredDomains.length, // Count of AUTHORITY domains that passed filtering
-        domains
+        authorityLinksCount: filteredHistoricalDomains.length,
+        domains: filteredHistoricalDomains
       };
       
     } catch (error: any) {
-      // If date filtering not supported by referring_domains endpoint, fall back to estimation
-      if (beforeDate && error.message.includes('first_seen')) {
-        console.log('Date filtering not supported by referring_domains endpoint, using estimation approach');
-        
-        // Get current referring domains count
-        const currentResponse = await this.makeRequest('/backlinks/backlinks/live', {
-          target: domain,
-          mode: "one_per_domain", // Get one backlink per domain to get domain authority
-          // No rank filter at API level - get all referring domains and filter in code
-          exclude_internal_backlinks: true,
-          limit: 1,
-          rank_scale: "one_hundred" // Use 0-100 scale to match Ahrefs DR
-        });
-        
-        const currentTotal = currentResponse.tasks?.[0]?.result?.[0]?.total_count || 0;
-        
-        // For historical data, estimate based on typical growth patterns
-        // Conservative estimate: assume 85% of current links existed at campaign start
-        const historicalEstimate = Math.round(currentTotal * 0.85);
-        
-        console.log(`Using growth estimation: Current ${currentTotal} → Historical estimate ${historicalEstimate}`);
-        
-        return {
-          authorityLinksCount: historicalEstimate,
-          domains: []
-        };
-      }
-      
-      throw error;
+      console.error('❌ Failed to get historical referring domains:', error.message);
+      return { authorityLinksCount: 0, domains: [] };
     }
   }
 }
