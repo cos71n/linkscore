@@ -1082,42 +1082,143 @@ export default function AnalysisResultsPage() {
           </div>
           
           {/* Opportunity Cost Commentary */}
-          <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-xl p-6">
-            <div className="flex items-start gap-4">
+          {(() => {
+            // Calculate performance ratio to determine styling
+            const competitorStats = analysis.competitive.competitors
+              .map(competitor => analysis.historicalData?.[competitor])
+              .filter((comp): comp is NonNullable<typeof comp> => comp !== undefined);
+            
+            const avgCompetitorGain = competitorStats.length > 0 
+              ? Math.round(competitorStats.reduce((sum, comp) => sum + comp.gained, 0) / competitorStats.length)
+              : 0;
+            
+            const clientGain = analysis.metrics.authorityLinksGained;
+            const performanceRatio = avgCompetitorGain > 0 ? clientGain / avgCompetitorGain : 0;
+            
+            let boxColorClass = 'bg-yellow-50 border-yellow-200'; // default
+            
+            if (performanceRatio >= 1.2) {
+              boxColorClass = 'bg-green-50 border-green-200';
+            } else if (performanceRatio >= 0.9) {
+              boxColorClass = 'bg-blue-50 border-blue-200';
+            } else if (performanceRatio >= 0.5) {
+              boxColorClass = 'bg-yellow-50 border-yellow-200';
+            } else {
+              boxColorClass = 'bg-red-50 border-red-200';
+            }
+            
+            return (
+              <div className={`mt-6 ${boxColorClass} border rounded-xl p-6`}>
+                <div className="flex items-start gap-4">
               <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-sm font-bold">⚠</span>
-                </div>
+                {(() => {
+                  // Calculate performance ratio to determine icon
+                  const competitorStats = analysis.competitive.competitors
+                    .map(competitor => analysis.historicalData?.[competitor])
+                    .filter((comp): comp is NonNullable<typeof comp> => comp !== undefined);
+                  
+                  const avgCompetitorGain = competitorStats.length > 0 
+                    ? Math.round(competitorStats.reduce((sum, comp) => sum + comp.gained, 0) / competitorStats.length)
+                    : 0;
+                  
+                  const clientGain = analysis.metrics.authorityLinksGained;
+                  const performanceRatio = avgCompetitorGain > 0 ? clientGain / avgCompetitorGain : 0;
+                  
+                  if (performanceRatio >= 1.2) {
+                    // Excellent performance - green
+                    return (
+                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                        <span className="text-white text-sm font-bold">✨</span>
+                      </div>
+                    );
+                  } else if (performanceRatio >= 0.9) {
+                    // Average performance - blue
+                    return (
+                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                        <span className="text-white text-sm font-bold">💡</span>
+                      </div>
+                    );
+                  } else if (performanceRatio >= 0.5) {
+                    // Below average - yellow
+                    return (
+                      <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
+                        <span className="text-white text-sm font-bold">⚠️</span>
+                      </div>
+                    );
+                  } else {
+                    // Poor performance - red
+                    return (
+                      <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
+                        <span className="text-white text-sm font-bold">🚨</span>
+                      </div>
+                    );
+                  }
+                })()}
               </div>
               <div className="flex-1">
                 <h4 className="font-semibold text-gray-900 mb-2">Opportunity Cost Analysis</h4>
-                <p className="text-gray-700 text-sm mb-4">
-                  While you expected to gain {analysis.metrics.expectedLinks} authority links from your ${analysis.campaign.totalInvestment.toLocaleString()} investment, 
-                  your competitors have been more successful. They've gained an average of{' '}
-                  {(() => {
-                    const competitorStats = analysis.competitive.competitors
-                      .map(competitor => analysis.historicalData?.[competitor])
-                      .filter((comp): comp is NonNullable<typeof comp> => comp !== undefined);
-                    return competitorStats.length > 0 
-                      ? Math.round(competitorStats.reduce((sum, comp) => sum + comp.gained, 0) / competitorStats.length)
-                      : 0;
-                  })()} links each - more in line with typical SEO investment returns.
-                </p>
-                <p className="text-gray-700 text-sm font-medium">
-                  Over a 12-month SEO campaign, you need to acquire approximately{' '}
-                  {(() => {
-                    const competitorStats = analysis.competitive.competitors
-                      .map(competitor => analysis.historicalData?.[competitor])
-                      .filter((comp): comp is NonNullable<typeof comp> => comp !== undefined);
-                    const avgGapToYou = competitorStats.length > 0
-                      ? Math.round(competitorStats.reduce((sum, comp) => sum + (comp.current - authorityLinksNow), 0) / competitorStats.length)
-                      : 0;
-                    return Math.max(0, avgGapToYou);
-                  })()} authority links to close the competitive gap.
-                </p>
+                {(() => {
+                  // Calculate average competitor gain
+                  const competitorStats = analysis.competitive.competitors
+                    .map(competitor => analysis.historicalData?.[competitor])
+                    .filter((comp): comp is NonNullable<typeof comp> => comp !== undefined);
+                  
+                  const avgCompetitorGain = competitorStats.length > 0 
+                    ? Math.round(competitorStats.reduce((sum, comp) => sum + comp.gained, 0) / competitorStats.length)
+                    : 0;
+                  
+                  const clientGain = analysis.metrics.authorityLinksGained;
+                  const expectedGain = analysis.metrics.expectedLinks;
+                  const performanceRatio = clientGain / avgCompetitorGain;
+                  
+                  // Determine performance category
+                  let performanceMessage = '';
+                  let actionMessage = '';
+                  
+                  if (performanceRatio >= 1.2) {
+                    // Client significantly outperformed competitors (20%+ better)
+                    performanceMessage = `Excellent work! You gained ${clientGain} authority links from your ${analysis.campaign.durationRange} month investment of $${analysis.campaign.totalInvestment.toLocaleString()}, while your competitors averaged only ${avgCompetitorGain} links. You're outperforming the market by ${Math.round((performanceRatio - 1) * 100)}%.`;
+                    
+                    actionMessage = `Continue this momentum by investing in more advanced link building strategies to maintain your competitive edge. Your current approach is clearly working better than your competitors'.`;
+                    
+                  } else if (performanceRatio >= 0.9) {
+                    // Client performed similarly to competitors (within 10%)
+                    performanceMessage = `You gained ${clientGain} authority links from your ${analysis.campaign.durationRange} month investment of $${analysis.campaign.totalInvestment.toLocaleString()}, performing on par with your competitors who averaged ${avgCompetitorGain} links. This is typical market performance.`;
+                    
+                    actionMessage = `To gain a competitive advantage, you'll need to either increase your investment or improve your link building strategy. Consider targeting higher-quality opportunities that your competitors are missing.`;
+                    
+                  } else if (performanceRatio >= 0.5) {
+                    // Client underperformed (10-50% worse)
+                    performanceMessage = `While you expected to gain ${expectedGain} authority links from your $${analysis.campaign.totalInvestment.toLocaleString()} investment, you only gained ${clientGain}. Your competitors averaged ${avgCompetitorGain} links - ${Math.round(((avgCompetitorGain / clientGain) - 1) * 100)}% better performance.`;
+                    
+                    actionMessage = `This performance gap suggests your current SEO strategy needs optimization. Over the next 12 months, you'll need to gain approximately ${Math.max(0, Math.round(analysis.competitive.competitorAverageLinks - analysis.metrics.currentAuthorityLinks))} authority links to reach competitive parity.`;
+                    
+                  } else {
+                    // Client severely underperformed (50%+ worse)
+                    performanceMessage = `Critical underperformance detected. You gained only ${clientGain} authority links from your $${analysis.campaign.totalInvestment.toLocaleString()} investment, while competitors averaged ${avgCompetitorGain} links. This represents a ${Math.round(((avgCompetitorGain / clientGain) - 1) * 100)}% performance gap.`;
+                    
+                    actionMessage = `Immediate action required. Your current SEO provider is delivering far below market standards. You need to gain approximately ${Math.max(0, Math.round(analysis.competitive.competitorAverageLinks - analysis.metrics.currentAuthorityLinks))} authority links to reach competitive parity. Consider switching providers or demanding a performance review.`;
+                  }
+                  
+                  // Special case: If client gained 0 links
+                  if (clientGain === 0 && avgCompetitorGain > 0) {
+                    performanceMessage = `Despite investing $${analysis.campaign.totalInvestment.toLocaleString()} over ${analysis.campaign.durationRange} months, you gained zero authority links. Meanwhile, your competitors averaged ${avgCompetitorGain} links during the same period.`;
+                    
+                    actionMessage = `This is a critical failure in SEO execution. Your investment has produced no measurable authority growth while competitors continue to build their advantage. Immediate intervention is required.`;
+                  }
+                  
+                  return (
+                    <>
+                      <p className="text-gray-700 text-sm mb-4">{performanceMessage}</p>
+                      <p className="text-gray-700 text-sm font-medium">{actionMessage}</p>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
+            );
+          })()}
         </section>
 
         {/* Free Resources & Education */}
