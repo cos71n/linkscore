@@ -90,6 +90,53 @@ export class AnalysisEngine {
     const startTime = Date.now();
     console.log('🚀 Starting analysis via V2 engine for:', existingAnalysisId);
     
+    // Add timeout wrapper for the entire analysis
+    const ANALYSIS_TIMEOUT = 50000; // 50 seconds (Vercel function timeout is 60s)
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Analysis timeout after ${ANALYSIS_TIMEOUT/1000} seconds`));
+      }, ANALYSIS_TIMEOUT);
+    });
+    
+    try {
+      // Race between analysis and timeout
+      const result = await Promise.race([
+        this.performAnalysisInternal(formData, request, existingAnalysisId, startTime),
+        timeoutPromise
+      ]);
+      
+      return result;
+    } catch (error: any) {
+      console.error('❌ Analysis failed or timed out:', error.message);
+      
+      // If we have an analysis ID, mark it as failed and try to trigger webhook
+      if (existingAnalysisId) {
+        await prisma.analysis.update({
+          where: { id: existingAnalysisId },
+          data: {
+            status: 'failed',
+            errorMessage: error.message || 'Analysis failed unexpectedly',
+            completedAt: new Date(),
+            linkScore: 0
+          }
+        });
+        
+        // Try to trigger webhook even on failure
+        console.log('🚨 Attempting to trigger webhook after failure...');
+        try {
+          await this.triggerZapierWebhook(existingAnalysisId);
+          console.log('✅ Webhook triggered after failure');
+        } catch (webhookError: any) {
+          console.error('❌ Webhook trigger failed:', webhookError.message);
+        }
+      }
+      
+      throw error;
+    }
+  }
+
+  private async performAnalysisInternal(formData: FormData, request: Request, existingAnalysisId: string | undefined, startTime: number): Promise<AnalysisResult> {
     try {
       // Update status to processing
       if (existingAnalysisId) {
@@ -134,25 +181,84 @@ export class AnalysisEngine {
       
       // Run analysis using V2 engine
       console.log('🔧 Running V2 analysis engine...');
-      const v2Result = await this.engineV2.runAnalysis({
-        domain: formData.domain,
-        keywords: formData.keywords,
-        location: formData.location,
-        monthlySpend: formData.monthlySpend,
-        investmentMonths: formData.investmentMonths,
-        campaignStartDate
-      });
+      let v2Result;
+      let partialResults = false;
       
-      console.log('✅ V2 analysis completed successfully');
+      try {
+        v2Result = await this.engineV2.runAnalysis({
+          domain: formData.domain,
+          keywords: formData.keywords,
+          location: formData.location,
+          monthlySpend: formData.monthlySpend,
+          investmentMonths: formData.investmentMonths,
+          campaignStartDate
+        });
+        
+        console.log('✅ V2 analysis completed successfully');
+      } catch (v2Error: any) {
+        console.error('⚠️ V2 analysis partially failed:', v2Error.message);
+        console.error('Stack:', v2Error.stack);
+        
+        // Try to salvage partial results
+        partialResults = true;
+        
+        // Create minimal result structure to ensure webhook still fires
+        v2Result = {
+          domain: formData.domain,
+          analysisDate: new Date(),
+          metrics: {
+            currentAuthorityLinks: 0,
+            historicalAuthorityLinks: 0,
+            linkGrowth: 0,
+            linkGrowthRate: 0
+          },
+          competitors: [],
+          linkGaps: [],
+          linkScore: {
+            overall: 0,
+            breakdown: {
+              competitivePosition: 0,
+              performanceVsExpected: 0,
+              velocityComparison: 0,
+              marketShareGrowth: 0,
+              costEfficiency: 0,
+              modifiers: 0
+            },
+            interpretation: {
+              grade: 'F',
+              label: 'Analysis Error',
+              message: 'Analysis partially failed - limited data available',
+              urgency: 'HIGH' as const
+            },
+            redFlags: ['Analysis did not complete successfully']
+          },
+          totalCost: 0,
+          processingTime: Math.round((Date.now() - startTime) / 1000)
+        };
+      }
       
       // Convert V2 result to old format
       const result = this.convertV2Result(v2Result, existingAnalysisId || '', formData);
       
-      // Update database with results
+      // Update database with results (even partial ones)
       if (existingAnalysisId) {
         console.log('💾 Calling finalizeAnalysis to save results and trigger webhook...');
-        await this.finalizeAnalysis(existingAnalysisId, result, v2Result.processingTime);
-        console.log('✅ finalizeAnalysis completed');
+        try {
+          await this.finalizeAnalysis(existingAnalysisId, result, v2Result.processingTime, partialResults);
+          console.log('✅ finalizeAnalysis completed');
+        } catch (finalizeError: any) {
+          console.error('❌ finalizeAnalysis failed:', finalizeError.message);
+          console.error('Stack:', finalizeError.stack);
+          
+          // Even if finalization fails, try to trigger webhook directly
+          console.log('🚨 Attempting emergency webhook trigger...');
+          try {
+            await this.triggerZapierWebhook(existingAnalysisId);
+            console.log('✅ Emergency webhook triggered');
+          } catch (webhookError: any) {
+            console.error('❌ Emergency webhook also failed:', webhookError.message);
+          }
+        }
       } else {
         console.log('⚠️ No existingAnalysisId, skipping finalizeAnalysis');
       }
@@ -312,17 +418,17 @@ export class AnalysisEngine {
     };
   }
 
-  private async finalizeAnalysis(analysisId: string, result: any, processingTime: number) {
-    console.log(`🎯 finalizeAnalysis called for ${analysisId}`);
+  private async finalizeAnalysis(analysisId: string, result: any, processingTime: number, partialResults: boolean = false) {
+    console.log(`🎯 finalizeAnalysis called for ${analysisId} (partial: ${partialResults})`);
     const linkScore = result.linkScore?.overall || 0;
     
     console.log('💾 Updating analysis in database...');
     await prisma.analysis.update({
       where: { id: analysisId },
       data: {
-        status: 'completed',
+        status: partialResults ? 'partial' : 'completed',
         completedAt: new Date(),
-        errorMessage: null,
+        errorMessage: partialResults ? 'Analysis completed with limited data' : null,
         linkScore: Math.round(linkScore),
         performanceScore: Math.round(result.linkScore?.breakdown?.performanceVsExpected || 0),
         competitiveScore: Math.round(result.linkScore?.breakdown?.competitivePosition || 0),
@@ -371,8 +477,16 @@ export class AnalysisEngine {
       crmUrlPrefix: crmWebhookUrl?.substring(0, 50)
     });
     
+    // Log environment for debugging
+    console.log('🌍 Environment:', {
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL_ENV: process.env.VERCEL_ENV,
+      BASE_URL: process.env.NEXT_PUBLIC_BASE_URL
+    });
+    
     if (!zapierWebhookUrl && !crmWebhookUrl) {
       console.log('❌ No webhook URLs configured - skipping webhook notification');
+      console.log('💡 Set ZAPIER_WEBHOOK_URL in Vercel environment variables');
       return;
     }
 

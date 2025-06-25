@@ -179,31 +179,52 @@ export class AnalysisEngineV2 {
         try {
           console.log(`   Analyzing ${competitor}...`);
           
-          // Get current authority links
-          const currentLinks = await this.dataforSeo.getCurrentAuthorityDomains(competitor);
-          const currentCount = currentLinks.length;
-          
-          // Get actual historical authority domains (not estimates!)
-          const historicalData = await this.dataforSeo.getHistoricalAuthorityDomains(competitor, historicalDateStr);
-          const historicalCount = historicalData.total_authority_domains;
-          
-          // Calculate growth
-          const linkGrowth = currentCount - historicalCount;
-          const linkGrowthRate = historicalCount > 0 ? (linkGrowth / historicalCount) * 100 : 0;
-          
-          allCompetitorAnalyses.push({
-            domain: competitor,
-            currentAuthorityLinks: currentCount,
-            historicalAuthorityLinks: historicalCount,
-            linkGrowth,
-            linkGrowthRate
+          // Add timeout for individual competitor analysis (10 seconds)
+          const competitorTimeout = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error(`Timeout analyzing ${competitor}`)), 10000);
           });
           
-          console.log(`     → ${currentCount} current, ${historicalCount} historical, ${linkGrowth} gained (${linkGrowthRate.toFixed(1)}% growth)`);
+          // Race between analysis and timeout
+          const competitorAnalysis = await Promise.race([
+            (async () => {
+              // Get current authority links
+              const currentLinks = await this.dataforSeo.getCurrentAuthorityDomains(competitor);
+              const currentCount = currentLinks.length;
+              
+              // Get actual historical authority domains (not estimates!)
+              const historicalData = await this.dataforSeo.getHistoricalAuthorityDomains(competitor, historicalDateStr);
+              const historicalCount = historicalData.total_authority_domains;
+              
+              // Calculate growth
+              const linkGrowth = currentCount - historicalCount;
+              const linkGrowthRate = historicalCount > 0 ? (linkGrowth / historicalCount) * 100 : 0;
+              
+              return {
+                domain: competitor,
+                currentAuthorityLinks: currentCount,
+                historicalAuthorityLinks: historicalCount,
+                linkGrowth,
+                linkGrowthRate
+              };
+            })(),
+            competitorTimeout
+          ]);
           
-        } catch (error) {
-          console.warn(`   Failed to analyze ${competitor}:`, error);
-          // Continue with other competitors
+          allCompetitorAnalyses.push(competitorAnalysis);
+          console.log(`     → ${competitorAnalysis.currentAuthorityLinks} current, ${competitorAnalysis.historicalAuthorityLinks} historical, ${competitorAnalysis.linkGrowth} gained (${competitorAnalysis.linkGrowthRate.toFixed(1)}% growth)`);
+          
+        } catch (error: any) {
+          console.warn(`   Failed to analyze ${competitor}:`, error.message);
+          // Continue with other competitors - don't let one failure break everything
+          
+          // Add a placeholder entry so we still have some data
+          allCompetitorAnalyses.push({
+            domain: competitor,
+            currentAuthorityLinks: 0,
+            historicalAuthorityLinks: 0,
+            linkGrowth: 0,
+            linkGrowthRate: 0
+          });
         }
       }
       
