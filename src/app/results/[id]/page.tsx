@@ -492,6 +492,14 @@ export default function AnalysisResultsPage() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Authority Link Cost:</span>
+                    <span className="font-semibold">
+                      {analysis.metrics.authorityLinksGained > 0 
+                        ? `$${Math.round(analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained).toLocaleString()}`
+                        : 'N/A'} per link
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-600">Current Position:</span>
                     <span className="font-semibold">{analysis.metrics.currentAuthorityLinks} authority links</span>
                   </div>
@@ -799,6 +807,66 @@ export default function AnalysisResultsPage() {
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 vs Expected: {expectedLinks}
+              </div>
+            </div>
+          </div>
+
+          {/* Authority Link Cost Row */}
+          <div className="mt-6 grid md:grid-cols-3 gap-6">
+            <div className="md:col-span-3">
+              <div className={`text-center p-6 rounded-xl ${
+                analysis.metrics.authorityLinksGained > 0 
+                  ? (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 667 
+                    ? 'bg-green-50' 
+                    : (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 1000 
+                      ? 'bg-yellow-50' 
+                      : 'bg-red-50'
+                  : 'bg-gray-50'
+              }`}>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                  <div>
+                    <div className={`text-3xl font-bold mb-2 ${
+                      analysis.metrics.authorityLinksGained > 0 
+                        ? (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 667 
+                          ? 'text-green-600' 
+                          : (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 1000 
+                            ? 'text-yellow-600' 
+                            : 'text-red-600'
+                        : 'text-gray-600'
+                    }`}>
+                      {analysis.metrics.authorityLinksGained > 0 
+                        ? `$${Math.round(analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained).toLocaleString()}`
+                        : 'N/A'}
+                    </div>
+                    <div className="text-sm font-medium text-gray-600">
+                      Authority Link Cost
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Average price per link gained
+                    </div>
+                  </div>
+                  
+                  {analysis.metrics.authorityLinksGained > 0 && (
+                    <div className="text-left text-sm">
+                      <div className={`font-medium ${
+                        (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 667 
+                          ? 'text-green-700' 
+                          : (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 1000 
+                            ? 'text-yellow-700' 
+                            : 'text-red-700'
+                      }`}>
+                        {(analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 667 
+                          ? '✅ Excellent Value' 
+                          : (analysis.campaign.totalInvestment / analysis.metrics.authorityLinksGained) <= 1000 
+                            ? '⚠️ Average Value' 
+                            : '❌ Poor Value'}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1">
+                        Industry benchmark: ~$667 per link
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1189,22 +1257,22 @@ export default function AnalysisResultsPage() {
                     
                   } else if (performanceRatio >= 0.5) {
                     // Client underperformed (10-50% worse)
-                    performanceMessage = `While you expected to gain ${expectedGain} authority links from your $${analysis.campaign.totalInvestment.toLocaleString()} investment, you only gained ${clientGain}. Your competitors averaged ${avgCompetitorGain} links - ${Math.round(((avgCompetitorGain / clientGain) - 1) * 100)}% better performance.`;
+                    performanceMessage = `Your competitors are accelerating their link acquisition. While you gained ${clientGain} authority links from your $${analysis.campaign.totalInvestment.toLocaleString()} investment, competitors averaged ${avgCompetitorGain} links - ${Math.round(((avgCompetitorGain / clientGain) - 1) * 100)}% more than your campaign achieved.`;
                     
-                    actionMessage = `This performance gap suggests your current SEO strategy needs optimization. Over the next 12 months, you'll need to gain approximately ${Math.max(0, Math.round(analysis.competitive.competitorAverageLinks - analysis.metrics.currentAuthorityLinks))} authority links to reach competitive parity.`;
+                    actionMessage = `The competitive gap is widening. To reach market parity, you'll need approximately ${Math.max(0, Math.round(analysis.competitive.competitorAverageLinks - analysis.metrics.currentAuthorityLinks))} additional authority links. Consider reviewing your investment level or the volume of output from your current investment to match competitor velocity.`;
                     
                   } else {
                     // Client severely underperformed (50%+ worse)
-                    performanceMessage = `Critical underperformance detected. You gained only ${clientGain} authority links from your $${analysis.campaign.totalInvestment.toLocaleString()} investment, while competitors averaged ${avgCompetitorGain} links. This represents a ${Math.round(((avgCompetitorGain / clientGain) - 1) * 100)}% performance gap.`;
+                    performanceMessage = `Your competitors are significantly outpacing your link acquisition. You gained ${clientGain} authority links from your $${analysis.campaign.totalInvestment.toLocaleString()} investment, while competitors averaged ${avgCompetitorGain} links. This ${Math.round(((avgCompetitorGain / clientGain) - 1) * 100)}% difference shows the competitive gap is expanding rapidly.`;
                     
-                    actionMessage = `Immediate action required. Your current SEO provider is delivering far below market standards. You need to gain approximately ${Math.max(0, Math.round(analysis.competitive.competitorAverageLinks - analysis.metrics.currentAuthorityLinks))} authority links to reach competitive parity. Consider switching providers or demanding a performance review.`;
+                    actionMessage = `The widening gap requires strategic review. Your competitors are building authority ${Math.round(avgCompetitorGain / clientGain)}x faster. To reach competitive parity, you need approximately ${Math.max(0, Math.round(analysis.competitive.competitorAverageLinks - analysis.metrics.currentAuthorityLinks))} additional authority links. Consider whether your current investment level aligns with your competitive goals, or if the volume and quality of output needs optimization.`;
                   }
                   
                   // Special case: If client gained 0 links
                   if (clientGain === 0 && avgCompetitorGain > 0) {
-                    performanceMessage = `Despite investing $${analysis.campaign.totalInvestment.toLocaleString()} over ${analysis.campaign.durationRange} months, you gained zero authority links. Meanwhile, your competitors averaged ${avgCompetitorGain} links during the same period.`;
+                    performanceMessage = `Your link building has stalled while competitors continue advancing. Despite investing $${analysis.campaign.totalInvestment.toLocaleString()} over ${analysis.campaign.durationRange} months, you gained no authority links, while competitors averaged ${avgCompetitorGain} links during the same period.`;
                     
-                    actionMessage = `This is a critical failure in SEO execution. Your investment has produced no measurable authority growth while competitors continue to build their advantage. Immediate intervention is required.`;
+                    actionMessage = `This complete lack of progress needs immediate attention. The competitive gap has grown by ${avgCompetitorGain} links while your authority remained static. A comprehensive review of your link building strategy, investment allocation, and execution quality is essential to restart growth.`;
                   }
                   
                   return (
