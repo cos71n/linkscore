@@ -101,6 +101,32 @@ export class AnalysisEngine {
         });
       }
       
+      // Set up progress callback to store updates in database
+      this.engineV2.setProgressCallback(async (update) => {
+        console.log('📊 Progress update:', update);
+        
+        if (existingAnalysisId) {
+          try {
+            // Store progress update in error_message field temporarily (since we don't have a dedicated progress field)
+            await prisma.analysis.update({
+              where: { id: existingAnalysisId },
+              data: {
+                errorMessage: JSON.stringify({
+                  step: update.step,
+                  message: update.message,
+                  percentage: update.percentage,
+                  personalized: update.personalized,
+                  data: update.data,
+                  timestamp: update.timestamp
+                })
+              }
+            });
+          } catch (error) {
+            console.error('Failed to store progress update:', error);
+          }
+        }
+      });
+      
       // Calculate campaign start date
       const campaignStartDate = new Date();
       campaignStartDate.setMonth(campaignStartDate.getMonth() - formData.investmentMonths);
@@ -156,6 +182,21 @@ export class AnalysisEngine {
     
     if (!analysis) {
       throw new Error('Analysis not found');
+    }
+    
+    // If processing, try to parse progress from errorMessage field
+    if (analysis.status === 'processing' && analysis.errorMessage) {
+      try {
+        const progressData = JSON.parse(analysis.errorMessage);
+        return {
+          status: analysis.status,
+          progress: progressData.percentage || 0,
+          message: progressData.message || 'Processing...',
+          progressData: progressData
+        };
+      } catch (e) {
+        // If parsing fails, return default progress
+      }
     }
     
     // Calculate progress based on status
@@ -263,6 +304,7 @@ export class AnalysisEngine {
       data: {
         status: 'completed',
         completedAt: new Date(),
+        errorMessage: null,
         linkScore: Math.round(linkScore),
         performanceScore: Math.round(result.linkScore?.breakdown?.performanceVsExpected || 0),
         competitiveScore: Math.round(result.linkScore?.breakdown?.competitivePosition || 0),

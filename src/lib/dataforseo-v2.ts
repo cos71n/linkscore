@@ -81,7 +81,8 @@ export class DataForSEOClient {
       backlinks_status_type: "live",
       mode: "one_per_domain",
       limit: 1000,
-      order_by: ["domain_from_rank,desc"]
+      order_by: ["domain_from_rank,desc"],
+      rank_scale: "one_hundred" // Convert to 0-100 scale like Ahrefs DR
     };
     
     const response = await this.makeRequest('/backlinks/backlinks/live', params);
@@ -169,7 +170,8 @@ export class DataForSEOClient {
       backlinks_status_type: "live", // Current approach only shows domains that still exist
       mode: "one_per_domain",
       limit: 1000, // Maximum allowed by API
-      order_by: ["domain_from_rank,desc"]
+      order_by: ["domain_from_rank,desc"],
+      rank_scale: "one_hundred" // Convert to 0-100 scale like Ahrefs DR
     };
     
     const response = await this.makeRequest('/backlinks/backlinks/live', params);
@@ -452,7 +454,8 @@ export class DataForSEOClient {
       targets,
       exclude_targets: [target],
       limit: 500,
-      order_by: ["rank,desc"]
+      order_by: ["rank,desc"],
+      rank_scale: "one_hundred" // Convert to 0-100 scale like Ahrefs DR
     };
     
     const response = await this.makeRequest('/backlinks/domain_intersection/live', params);
