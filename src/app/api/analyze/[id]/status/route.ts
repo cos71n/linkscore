@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AnalysisEngine } from '@/lib/analysis-engine';
+import { AnalysisEngine } from '@/lib/analysis-engine-adapter';
 
 export async function GET(
   request: NextRequest,

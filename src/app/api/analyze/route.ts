@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil } from '@vercel/functions';
-import { AnalysisEngine, FormData } from '@/lib/analysis-engine';
+import { AnalysisEngine, FormData } from '@/lib/analysis-engine-adapter';
 import { securityMiddleware } from '@/lib/security';
 import { checkDomainBlocklist } from '@/lib/domain-blocklist';
 

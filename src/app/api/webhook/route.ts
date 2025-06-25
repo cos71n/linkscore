@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AnalysisEngine } from '@/lib/analysis-engine';
+import { AnalysisEngine } from '@/lib/analysis-engine-adapter';
 import { LinkScoreCalculator } from '@/lib/link-score';
 import { decryptEmail } from '@/lib/security/encryption';
 
