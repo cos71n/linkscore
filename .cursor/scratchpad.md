@@ -63,7 +63,7 @@ const AUTHORITY_CRITERIA = {
   - Need to whitelist status endpoint or adjust rate limiting rules
 - [x] **Critical Bug: Traffic Data Hardcoded to 1000** - FIXED: Now using real DataForSEO Labs API traffic data with 24-hour caching
 - [x] **Vercel Deployment Failure** - FIXED: Prisma build script working correctly
-- [x] **Zapier Webhook Integration** - FIXED: Proper scoring normalization implemented
+- [x] **Zapier Webhook Integration** - FIXED: Webhook functionality restored after refactoring
 
 ### 📱 User Experience 
 - [x] **Mobile Hamburger Menu UX** - FIXED: Scroll-based visibility controls implemented
@@ -808,6 +808,15 @@ const AUSTRALIAN_LOCATIONS = {
 - **Comprehensive Logging**: Log all webhook attempts for monitoring and debugging
 - **Error Recovery**: Graceful failure handling prevents blocking analysis completion
 - **Payload Structure**: Full analysis data including LinkScore, competitive data, and lead scoring
+
+### Webhook Integration After Refactoring (NEW)
+- **Issue**: When refactoring from `analysis-engine.ts` to `analysis-engine-adapter.ts`, webhook functionality can be lost
+- **Symptom**: Analyses complete successfully but Zapier webhook is never triggered
+- **Root Cause**: The `triggerZapierWebhook()` method exists in old engine but not carried over to adapter
+- **Solution**: Copy `triggerZapierWebhook()` and `logWebhookEvent()` methods to adapter and call from `finalizeAnalysis()`
+- **Key Files**: `analysis-engine-adapter.ts` needs webhook methods, `scripts/setup-env.js` needs correct env vars
+- **Environment Variables**: Must use `ZAPIER_WEBHOOK_URL` and/or `CRM_WEBHOOK_URL` (not just `WEBHOOK_URL`)
+- **Testing**: Check logs for "🎯 Triggering webhook notification..." message after analysis completes
 
 ### Security Implementation
 - Never store plain text PII

@@ -40,8 +40,12 @@ DATAFORSEO_PASSWORD="your_dataforseo_password"
 
 # Optional: CRM Webhook Integration
 # URL where analysis results will be sent for lead management
-WEBHOOK_URL="https://your-crm-system.com/webhook/linkscore"
+CRM_WEBHOOK_URL="https://your-crm-system.com/webhook/linkscore"
 WEBHOOK_SECRET="your_webhook_secret_for_verification"
+
+# Optional: Zapier Webhook Integration
+# URL where analysis results will be sent for Zapier automation
+ZAPIER_WEBHOOK_URL="https://hooks.zapier.com/hooks/catch/your-zapier-webhook-id"
 
 # Optional: Development Settings
 NODE_ENV="development"
