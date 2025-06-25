@@ -62,7 +62,7 @@ export class AnalysisEngineV2 {
       
       // Step 2: Find and analyze competitors
       console.log('\n🎯 Step 2: Finding and analyzing competitors...');
-      const competitors = await this.dataforSeo.findCompetitors(input.keywords, input.location);
+      const competitors = await this.dataforSeo.findCompetitors(input.keywords, input.location, input.domain);
       
       // Analyze ALL competitors to get their authority link counts
       console.log(`   Analyzing ${competitors.length} competitors to find top 5 by authority links...`);

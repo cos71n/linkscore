@@ -328,42 +328,52 @@ export class DataForSEOClient {
 
   // Competitor blocklist - directory sites that should never be shown as competitors
   private readonly COMPETITOR_BLOCKLIST = new Set([
+    // Directory sites
     'localsearch.com.au',
     'yellowpages.com.au',
-    'airtasker.com',
     'hipages.com.au',
-    'clutch.co',
-    'semrush.com',
-    'trustpilot.com',
-    'productreview.com.au',
-    'reddit.com',
-    'yelp.com',
-    'yelp.com.au',
     'truelocal.com.au',
     'oneflare.com.au',
-    'bark.com',
     'startlocal.com.au',
     'hotfrog.com.au',
     'australiabusinesslisting.com.au',
     'binglocal.com.au',
     'purelocal.com.au',
     'aussieweb.com.au',
-    'bing.com',
-    'google.com',
-    'google.com.au',
+    'bark.com',
+    'bark.com.au',
+    'airtasker.com',
+    // Review sites
+    'clutch.co',
+    'trustpilot.com',
+    'productreview.com.au',
+    'yelp.com',
+    'yelp.com.au',
+    // SEO tools
+    'semrush.com',
+    // Social media
+    'reddit.com',
     'facebook.com',
     'instagram.com',
     'linkedin.com',
     'twitter.com',
-    'youtube.com'
+    'youtube.com',
+    // Search engines
+    'bing.com',
+    'google.com',
+    'google.com.au'
   ]);
 
   // Simple competitor discovery with blocklist
-  async findCompetitors(keywords: string[], location: string): Promise<string[]> {
+  async findCompetitors(keywords: string[], location: string, targetDomain?: string): Promise<string[]> {
     console.log(`🎯 Finding competitors for keywords: ${keywords.join(', ')}`);
     
     const locationCode = this.getLocationCode(location);
     const competitors = new Set<string>();
+    
+    // Normalize target domain for comparison
+    const normalizedTarget = targetDomain?.toLowerCase().replace(/^www\./, '');
+    console.log(`🚫 Excluding target domain: ${normalizedTarget}`);
     
     // Search top 2 keywords only for efficiency
     for (const keyword of keywords.slice(0, 2)) {
@@ -401,9 +411,18 @@ export class DataForSEOClient {
                 return;
               }
               
-              // Simple filter: Australian domains preferred
-              if (domain.endsWith('.au') || domain.endsWith('.com')) {
+              // Skip if it's the target domain
+              if (normalizedTarget && (domain === normalizedTarget || domainWithoutWww === normalizedTarget)) {
+                console.log(`   Skipping target domain: ${domain}`);
+                return;
+              }
+              
+              // Only include Australian .com.au domains for local competition
+              if (domain.endsWith('.com.au')) {
                 competitors.add(domain);
+                console.log(`   ✓ Added Australian competitor: ${domain}`);
+              } else {
+                console.log(`   Skipping non-.com.au domain: ${domain}`);
               }
             });
         }
@@ -413,7 +432,7 @@ export class DataForSEOClient {
     }
     
     const finalCompetitors = Array.from(competitors).slice(0, 10);
-    console.log(`✅ Found ${finalCompetitors.length} competitors (after blocklist filtering)`);
+    console.log(`✅ Found ${finalCompetitors.length} Australian competitors (.com.au domains only)`);
     return finalCompetitors;
   }
 
