@@ -688,7 +688,9 @@ export class AnalysisEngine {
 
     console.log('📦 Building final payload structure...');
     const payload = {
-      timestamp: new Date().toISOString(),
+      // Format timestamp as string that Google Sheets won't convert
+      timestamp: new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
+      timestampISO: new Date().toISOString(), // Keep original for other systems
       source: "LinkScore",
       version: "1.0",
       
@@ -712,6 +714,7 @@ export class AnalysisEngine {
       campaign: {
         monthlySpend: analysis.monthlySpend,
         investmentMonths: analysis.investmentMonths,
+        investmentMonthsString: String(analysis.investmentMonths), // String version
         totalInvested: analysis.monthlySpend * analysis.investmentMonths,
         spendRange: analysis.spendRange,
         durationRange: analysis.durationRange,
