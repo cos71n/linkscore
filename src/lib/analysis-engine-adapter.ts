@@ -422,7 +422,19 @@ export class AnalysisEngine {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-            console.log('📡 Making fetch request...');
+            console.log('📡 Making fetch request to:', webhookUrl);
+            console.log('📋 Request headers:', {
+              'Content-Type': 'application/json',
+              'User-Agent': 'LinkScore/1.0',
+              'X-Webhook-Source': 'LinkScore',
+              'X-Analysis-ID': analysisId,
+              ...(isZapier && {
+                'X-Zapier-Trigger': 'analysis_completed',
+                'Accept': 'application/json'
+              })
+            });
+            console.log('📦 Payload size:', JSON.stringify(payload).length, 'bytes');
+            
             const response = await fetch(webhookUrl, {
               method: 'POST',
               headers: {
@@ -441,14 +453,19 @@ export class AnalysisEngine {
 
             clearTimeout(timeoutId);
             console.log(`📨 Response received: ${response.status} ${response.statusText}`);
+            console.log('📋 Response headers:', Object.fromEntries(response.headers.entries()));
 
             if (response.ok) {
+              const responseText = await response.text();
               console.log(`✅ Webhook delivered successfully to ${isZapier ? 'Zapier' : 'CRM'}`);
+              console.log('📄 Response body:', responseText.substring(0, 200) + (responseText.length > 200 ? '...' : ''));
               await this.logWebhookEvent(analysisId, 'SUCCESS', `Delivered to ${isZapier ? 'Zapier' : 'CRM'} on attempt ${attempt}`);
               break; // Success, no need to retry
             } else {
               const errorText = await response.text().catch(() => 'Unknown error');
-              console.warn(`⚠️ Webhook failed (attempt ${attempt}/${maxRetries}) - Status: ${response.status}, Error: ${errorText}`);
+              console.warn(`⚠️ Webhook failed (attempt ${attempt}/${maxRetries})`);
+              console.warn(`Status: ${response.status} ${response.statusText}`);
+              console.warn(`Error body: ${errorText.substring(0, 500)}...`);
               
               if (attempt === maxRetries) {
                 await this.logWebhookEvent(analysisId, 'FAILED', `Failed to ${isZapier ? 'Zapier' : 'CRM'} after ${maxRetries} attempts - Status: ${response.status}`);
@@ -456,7 +473,12 @@ export class AnalysisEngine {
             }
           } catch (error: any) {
             console.error(`❌ Webhook error (attempt ${attempt}/${maxRetries}):`, error.message);
-            console.error('Error details:', error);
+            console.error('Error type:', error.name);
+            console.error('Error stack:', error.stack);
+            
+            if (error.name === 'AbortError') {
+              console.error('Request timed out after 15 seconds');
+            }
             
             if (attempt === maxRetries) {
               await this.logWebhookEvent(analysisId, 'ERROR', `Network error to ${isZapier ? 'Zapier' : 'CRM'}: ${error.message}`);
@@ -480,7 +502,20 @@ export class AnalysisEngine {
   }
 
   private async buildWebhookPayload(analysis: any) {
+    console.log('🏗️ Starting to build webhook payload...');
     const calculator = new LinkScoreCalculator();
+    
+    // Safely decrypt email with error handling
+    let decryptedEmail = 'error@decrypting.email';
+    try {
+      console.log('🔐 Attempting to decrypt email...');
+      decryptedEmail = decryptEmail(analysis.user.emailEncrypted);
+      console.log('✅ Email decrypted successfully');
+    } catch (error: any) {
+      console.error('❌ Failed to decrypt email:', error.message);
+      console.error('Email encrypted value:', analysis.user.emailEncrypted?.substring(0, 50) + '...');
+      // Continue with error email rather than failing the whole webhook
+    }
     
     // Australian locations mapping
     const AUSTRALIAN_LOCATIONS: Record<string, any> = {
@@ -500,6 +535,8 @@ export class AnalysisEngine {
 
     const locationInfo = AUSTRALIAN_LOCATIONS[analysis.user.location] || AUSTRALIAN_LOCATIONS.australia_general;
 
+    // Build link score result
+    console.log('📊 Building link score result...');
     const linkScoreResult = {
       overall: analysis.linkScore,
       breakdown: {
@@ -524,10 +561,19 @@ export class AnalysisEngine {
       overall: Math.round((analysis.priorityScore + analysis.potentialScore) / 2)
     };
 
-    const leadType = calculator.getLeadType(leadScores, linkScoreResult);
-    const urgency = calculator.getUrgency(analysis.linkScore, analysis.priorityScore);
+    console.log('🎯 Calculating lead type and urgency...');
+    let leadType = 'Unknown';
+    let urgency = 'MEDIUM';
+    
+    try {
+      leadType = calculator.getLeadType(leadScores, linkScoreResult);
+      urgency = calculator.getUrgency(analysis.linkScore, analysis.priorityScore);
+    } catch (error: any) {
+      console.error('❌ Error calculating lead type/urgency:', error.message);
+    }
 
-    return {
+    console.log('📦 Building final payload structure...');
+    const payload = {
       timestamp: new Date().toISOString(),
       source: "LinkScore",
       version: "1.0",
@@ -542,7 +588,7 @@ export class AnalysisEngine {
       user: {
         id: analysis.user.id,
         domain: analysis.user.domain,
-        email: decryptEmail(analysis.user.emailEncrypted),
+        email: decryptedEmail,
         company: analysis.user.companyName || '',
         location: analysis.user.location,
         locationName: locationInfo.name,
@@ -602,6 +648,16 @@ export class AnalysisEngine {
         toolVersion: "1.0.0"
       }
     };
+    
+    console.log('✅ Payload built successfully');
+    console.log('📊 Payload summary:', {
+      analysisId: payload.analysis.id,
+      domain: payload.user.domain,
+      linkScore: payload.results.linkScore,
+      email: payload.user.email.substring(0, 3) + '***'
+    });
+    
+    return payload;
   }
 
   private generateSalesNotes(analysis: any, leadScores: any): string[] {
