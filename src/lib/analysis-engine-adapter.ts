@@ -3,7 +3,7 @@ import { AnalysisEngineV2 } from './analysis-engine-v2';
 import { LinkScoreCalculator } from './link-score';
 import { prisma } from './database';
 import { validateAndSanitizeInput, UserInput } from './security/validation';
-import { encryptEmail, hashPhone } from './security/encryption';
+import { encryptEmail, hashPhone, decryptEmail } from './security/encryption';
 
 // Re-export types from old engine for compatibility
 export interface FormData extends UserInput {
@@ -341,111 +341,278 @@ export class AnalysisEngine {
   }
 
   private async triggerZapierWebhook(analysisId: string, maxRetries: number = 3) {
-    const zapierWebhookUrl = process.env.ZAPIER_WEBHOOK_URL || process.env.CRM_WEBHOOK_URL;
+    const zapierWebhookUrl = process.env.ZAPIER_WEBHOOK_URL;
+    const crmWebhookUrl = process.env.CRM_WEBHOOK_URL;
     
-    if (!zapierWebhookUrl) {
-      console.log('❌ No Zapier webhook URL configured - skipping webhook notification');
-      console.log('Available env vars:', {
-        hasZapierUrl: !!process.env.ZAPIER_WEBHOOK_URL,
-        hasCrmUrl: !!process.env.CRM_WEBHOOK_URL,
-        hasBaseUrl: !!process.env.NEXT_PUBLIC_BASE_URL,
-        baseUrl: process.env.NEXT_PUBLIC_BASE_URL
-      });
+    if (!zapierWebhookUrl && !crmWebhookUrl) {
+      console.log('❌ No webhook URLs configured - skipping webhook notification');
       return;
     }
 
-    console.log(`🔗 Triggering Zapier webhook for analysis ${analysisId}`);
-    console.log(`📍 Webhook URL configured: ${zapierWebhookUrl.substring(0, 30)}...`); // Log partial URL for debugging
+    console.log(`🔗 Triggering webhook for analysis ${analysisId}`);
+    
+    // Get the analysis data to build the payload
+    try {
+      const analysis = await this.getAnalysis(analysisId);
+      
+      if (!analysis || analysis.status !== 'completed') {
+        console.error('❌ Analysis not found or not completed');
+        return;
+      }
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        // Use AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      // Build the webhook payload directly
+      const payload = await this.buildWebhookPayload(analysis);
+      
+      // Send to all configured webhooks
+      const webhookUrls = [zapierWebhookUrl, crmWebhookUrl].filter(Boolean) as string[];
+      
+      for (const webhookUrl of webhookUrls) {
+        const isZapier = webhookUrl.includes('zapier.com') || webhookUrl.includes('hooks.zapier.com');
+        console.log(`📤 Sending to ${isZapier ? 'Zapier' : 'CRM'}: ${webhookUrl.substring(0, 50)}...`);
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-        // Fix the base URL - remove @ if present
-        const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002').replace(/^@/, '');
-        const webhookEndpoint = `${baseUrl}/api/webhook`;
-        console.log(`📍 Calling webhook endpoint: ${webhookEndpoint}`);
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'LinkScore/1.0',
+                'X-Webhook-Source': 'LinkScore',
+                'X-Analysis-ID': analysisId,
+                ...(isZapier && {
+                  'X-Zapier-Trigger': 'analysis_completed',
+                  'Accept': 'application/json'
+                })
+              },
+              body: JSON.stringify(payload),
+              signal: controller.signal
+            });
 
-        const requestBody = {
-          analysisId,
-          trigger: 'analysis_completed',
-          timestamp: new Date().toISOString()
-        };
-        console.log(`📤 Request body:`, requestBody);
+            clearTimeout(timeoutId);
 
-        const response = await fetch(webhookEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'LinkScore/1.0',
-            'X-Webhook-Source': 'LinkScore-AutoTrigger',
-            'X-Analysis-ID': analysisId
-          },
-          body: JSON.stringify(requestBody),
-          signal: controller.signal
-        });
+            if (response.ok) {
+              console.log(`✅ Webhook delivered successfully to ${isZapier ? 'Zapier' : 'CRM'}`);
+              await this.logWebhookEvent(analysisId, 'SUCCESS', `Delivered to ${isZapier ? 'Zapier' : 'CRM'} on attempt ${attempt}`);
+              break; // Success, no need to retry
+            } else {
+              const errorText = await response.text().catch(() => 'Unknown error');
+              console.warn(`⚠️ Webhook failed (attempt ${attempt}/${maxRetries}) - Status: ${response.status}`);
+              
+              if (attempt === maxRetries) {
+                await this.logWebhookEvent(analysisId, 'FAILED', `Failed to ${isZapier ? 'Zapier' : 'CRM'} after ${maxRetries} attempts - Status: ${response.status}`);
+              }
+            }
+          } catch (error: any) {
+            console.error(`❌ Webhook error (attempt ${attempt}/${maxRetries}):`, error.message);
+            
+            if (attempt === maxRetries) {
+              await this.logWebhookEvent(analysisId, 'ERROR', `Network error to ${isZapier ? 'Zapier' : 'CRM'}: ${error.message}`);
+            }
+          }
 
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          const result = await response.json();
-          console.log(`✅ Zapier webhook delivered successfully for analysis ${analysisId}`);
-          console.log(`📊 Webhook payload sent - LinkScore: ${result.payload?.results?.linkScore}`);
-          
-          // Log webhook success for monitoring
-          await this.logWebhookEvent(analysisId, 'SUCCESS', `Delivered on attempt ${attempt}`);
-          return;
-        } else {
-          const errorText = await response.text().catch(() => 'Unknown error');
-          console.warn(`⚠️ Zapier webhook failed (attempt ${attempt}/${maxRetries}) - Status: ${response.status}, Error: ${errorText}`);
-          
-          if (attempt === maxRetries) {
-            await this.logWebhookEvent(analysisId, 'FAILED', `All ${maxRetries} attempts failed - Status: ${response.status}`);
+          // Wait before retry
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
           }
         }
-      } catch (error: any) {
-        console.error(`❌ Zapier webhook error (attempt ${attempt}/${maxRetries}):`, error.message);
-        
-        if (attempt === maxRetries) {
-          await this.logWebhookEvent(analysisId, 'ERROR', `Network error after ${maxRetries} attempts: ${error.message}`);
-        }
       }
-
-      // Wait before retry (exponential backoff)
-      if (attempt < maxRetries) {
-        const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
-        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
+    } catch (error: any) {
+      console.error('❌ Failed to build webhook payload:', error);
+      await this.logWebhookEvent(analysisId, 'ERROR', `Failed to build payload: ${error.message}`);
     }
   }
 
-  private async logWebhookEvent(analysisId: string, status: 'SUCCESS' | 'FAILED' | 'ERROR', details: string) {
-    try {
-      // Get current analysis to append webhook log
-      const currentAnalysis = await prisma.analysis.findUnique({
-        where: { id: analysisId },
-        select: { errorMessage: true }
-      });
+  private async buildWebhookPayload(analysis: any) {
+    const calculator = new LinkScoreCalculator();
+    
+    // Australian locations mapping
+    const AUSTRALIAN_LOCATIONS: Record<string, any> = {
+      "sydney": { code: 21167, name: "Sydney, NSW", population: "5.4M", marketValue: "HIGH" },
+      "melbourne": { code: 21173, name: "Melbourne, VIC", population: "5.3M", marketValue: "HIGH" },
+      "brisbane": { code: 21174, name: "Brisbane, QLD", population: "2.5M", marketValue: "HIGH" },
+      "perth": { code: 21175, name: "Perth, WA", population: "2.1M", marketValue: "HIGH" },
+      "adelaide": { code: 21176, name: "Adelaide, SA", population: "1.3M", marketValue: "MEDIUM" },
+      "gold_coast": { code: 1011678, name: "Gold Coast, QLD", population: "750K", marketValue: "MEDIUM" },
+      "newcastle": { code: 1011715, name: "Newcastle, NSW", population: "308K", marketValue: "MEDIUM" },
+      "canberra": { code: 21177, name: "Canberra, ACT", population: "368K", marketValue: "MEDIUM" },
+      "sunshine_coast": { code: 1011679, name: "Sunshine Coast, QLD", population: "350K", marketValue: "MEDIUM" },
+      "wollongong": { code: 1011717, name: "Wollongong, NSW", population: "292K", marketValue: "MEDIUM" },
+      "central_coast": { code: 1011716, name: "Central Coast, NSW", population: "340K", marketValue: "MEDIUM" },
+      "australia_general": { code: 2036, name: "Australia", population: "Other", marketValue: "VARIABLE" }
+    };
 
-      const webhookLog = `[WEBHOOK_${status}] ${details}`;
-      const updatedErrorMessage = currentAnalysis?.errorMessage ? 
-        `${currentAnalysis.errorMessage}\n${webhookLog}` : 
-        webhookLog;
+    const locationInfo = AUSTRALIAN_LOCATIONS[analysis.user.location] || AUSTRALIAN_LOCATIONS.australia_general;
 
-      await prisma.analysis.update({
-        where: { id: analysisId },
-        data: {
-          errorMessage: updatedErrorMessage
-        }
-      });
+    const linkScoreResult = {
+      overall: analysis.linkScore,
+      breakdown: {
+        competitivePosition: analysis.competitiveScore || 0,
+        performanceVsExpected: analysis.performanceScore || 0,
+        velocityComparison: 0,
+        marketShareGrowth: 0,
+        costEfficiency: 0,
+        modifiers: 0
+      },
+      interpretation: {
+        grade: analysis.linkScore >= 70 ? 'B' : analysis.linkScore >= 50 ? 'D' : 'F',
+        label: analysis.linkScore >= 70 ? 'Good' : analysis.linkScore >= 50 ? 'Below Average' : 'Poor',
+        message: 'Analysis completed',
+        urgency: (analysis.linkScore <= 40 ? 'HIGH' : analysis.linkScore <= 60 ? 'MEDIUM' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW' | 'CRITICAL'
+      }
+    };
+
+    const leadScores = {
+      priority: analysis.priorityScore,
+      potential: analysis.potentialScore,
+      overall: Math.round((analysis.priorityScore + analysis.potentialScore) / 2)
+    };
+
+    const leadType = calculator.getLeadType(leadScores, linkScoreResult);
+    const urgency = calculator.getUrgency(analysis.linkScore, analysis.priorityScore);
+
+    return {
+      timestamp: new Date().toISOString(),
+      source: "LinkScore",
+      version: "1.0",
       
-      console.log(`📝 Webhook event logged for analysis ${analysisId}: ${status} - ${details}`);
-    } catch (error) {
-      console.warn(`Failed to log webhook event for analysis ${analysisId}:`, error);
+      analysis: {
+        id: analysis.id,
+        completedAt: analysis.completedAt?.toISOString() || new Date().toISOString(),
+        processingTime: analysis.processingTimeSeconds || 0,
+        status: analysis.status
+      },
+      
+      user: {
+        id: analysis.user.id,
+        domain: analysis.user.domain,
+        email: decryptEmail(analysis.user.emailEncrypted),
+        company: analysis.user.companyName || '',
+        location: analysis.user.location,
+        locationName: locationInfo.name,
+        marketValue: locationInfo.marketValue
+      },
+      
+      campaign: {
+        monthlySpend: analysis.monthlySpend,
+        investmentMonths: analysis.investmentMonths,
+        totalInvested: analysis.monthlySpend * analysis.investmentMonths,
+        spendRange: analysis.spendRange,
+        durationRange: analysis.durationRange,
+        targetKeywords: analysis.targetKeywords
+      },
+      
+      results: {
+        linkScore: analysis.linkScore,
+        performanceScore: analysis.performanceScore,
+        competitiveScore: analysis.competitiveScore,
+        opportunityScore: analysis.opportunityScore,
+        currentAuthorityLinks: analysis.currentAuthorityLinks || 0,
+        expectedLinks: analysis.expectedLinks || 0,
+        authorityLinksGained: analysis.authorityLinksGained || 0,
+        competitorAverageLinks: analysis.competitorAverageLinks || 0,
+        linkGapsTotal: analysis.linkGapsTotal || 0,
+        linkGapsHighPriority: analysis.linkGapsHighPriority || 0,
+        costPerAuthorityLink: analysis.costPerAuthorityLink || 0,
+        redFlags: analysis.redFlags || [],
+        redFlagCount: (analysis.redFlags || []).length,
+        criticalFlags: (analysis.redFlags || []).filter((f: any) => f.severity === 'CRITICAL').length
+      },
+      
+      intelligence: {
+        competitors: analysis.competitors || [],
+        competitorCount: (analysis.competitors || []).length,
+        marketPosition: analysis.competitorAverageLinks > 0 && analysis.currentAuthorityLinks > 0
+          ? Math.round((analysis.currentAuthorityLinks / analysis.competitorAverageLinks) * 100)
+          : 0,
+        linkGapOpportunities: (analysis.linkGapData || []).slice(0, 10)
+      },
+      
+      leadScoring: {
+        priorityScore: leadScores.priority,
+        potentialScore: leadScores.potential,
+        overallScore: leadScores.overall,
+        leadType,
+        urgency,
+        salesNotes: this.generateSalesNotes(analysis, leadScores)
+      },
+      
+      strategy: this.getResultStrategy(analysis.linkScore),
+      
+      metadata: {
+        dataforseoCost: analysis.dataforseoCostUsd || 0,
+        processingTime: analysis.processingTimeSeconds || 0,
+        apiVersion: "v3",
+        toolVersion: "1.0.0"
+      }
+    };
+  }
+
+  private generateSalesNotes(analysis: any, leadScores: any): string[] {
+    const notes = [];
+    
+    if (analysis.linkScore <= 4) {
+      notes.push(`URGENT: LinkScore ${analysis.linkScore}/10 after $${(analysis.monthlySpend * analysis.investmentMonths).toLocaleString()} invested`);
     }
+    
+    if (analysis.monthlySpend >= 5000) {
+      notes.push(`High-value client: $${analysis.monthlySpend.toLocaleString()}/month budget`);
+    }
+    
+    if (analysis.competitorAverageLinks > 0 && analysis.currentAuthorityLinks > 0) {
+      if (analysis.competitorAverageLinks > analysis.currentAuthorityLinks * 2) {
+        notes.push(`Massive competitive gap: ${analysis.competitorAverageLinks} vs ${analysis.currentAuthorityLinks} authority links`);
+      }
+    }
+    
+    if (analysis.investmentMonths >= 12 && analysis.linkScore <= 5) {
+      notes.push(`Long-term underperformance: ${analysis.investmentMonths} months with poor results`);
+    }
+    
+    const criticalFlags = (analysis.redFlags || []).filter((f: any) => f.severity === 'CRITICAL');
+    if (criticalFlags.length > 0) {
+      notes.push(`Critical issues: ${criticalFlags.map((f: any) => f.type).join(', ')}`);
+    }
+    
+    return notes;
+  }
+
+  private getResultStrategy(linkScore: number) {
+    if (linkScore <= 4) {
+      return {
+        type: 'CRISIS',
+        headline: 'Your SEO Isn\'t Working',
+        cta: 'Get a Free Emergency SEO Audit',
+        urgency: 'HIGH'
+      };
+    }
+    
+    if (linkScore <= 6) {
+      return {
+        type: 'OPPORTUNITY',
+        headline: 'Your SEO Has Potential',
+        cta: 'Discover Your Biggest Link Building Opportunities',
+        urgency: 'MEDIUM'
+      };
+    }
+    
+    if (linkScore >= 8) {
+      return {
+        type: 'SUCCESS',
+        headline: 'Your SEO Is Working Well',
+        cta: 'Book a Strategy Session to Analyze New Opportunities',
+        urgency: 'LOW'
+      };
+    }
+    
+    return {
+      type: 'OPTIMIZATION',
+      headline: 'Your SEO Shows Promise',
+      cta: 'Get a Personalized SEO Growth Plan',
+      urgency: 'MEDIUM'
+    };
   }
 
   private extractIPAddress(request: Request): string {
@@ -511,5 +678,31 @@ export class AnalysisEngine {
         userAgent: userData.userAgent
       }
     });
+  }
+
+  private async logWebhookEvent(analysisId: string, status: 'SUCCESS' | 'FAILED' | 'ERROR', details: string) {
+    try {
+      // Get current analysis to append webhook log
+      const currentAnalysis = await prisma.analysis.findUnique({
+        where: { id: analysisId },
+        select: { errorMessage: true }
+      });
+
+      const webhookLog = `[WEBHOOK_${status}] ${details}`;
+      const updatedErrorMessage = currentAnalysis?.errorMessage ? 
+        `${currentAnalysis.errorMessage}\n${webhookLog}` : 
+        webhookLog;
+
+      await prisma.analysis.update({
+        where: { id: analysisId },
+        data: {
+          errorMessage: updatedErrorMessage
+        }
+      });
+      
+      console.log(`📝 Webhook event logged for analysis ${analysisId}: ${status} - ${details}`);
+    } catch (error) {
+      console.warn(`Failed to log webhook event for analysis ${analysisId}:`, error);
+    }
   }
 } 
