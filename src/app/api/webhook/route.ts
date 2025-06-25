@@ -91,10 +91,17 @@ const AUSTRALIAN_LOCATIONS = {
 };
 
 export async function POST(request: NextRequest) {
+  console.log('🎯 Webhook endpoint called');
+  console.log('Headers:', Object.fromEntries(request.headers.entries()));
+  
   try {
-    const { analysisId } = await request.json();
+    const body = await request.json();
+    console.log('📥 Webhook request body:', body);
+    
+    const { analysisId } = body;
     
     if (!analysisId) {
+      console.error('❌ No analysisId provided in webhook request');
       return NextResponse.json(
         { error: 'Analysis ID is required' },
         { status: 400 }

@@ -344,11 +344,18 @@ export class AnalysisEngine {
     const zapierWebhookUrl = process.env.ZAPIER_WEBHOOK_URL || process.env.CRM_WEBHOOK_URL;
     
     if (!zapierWebhookUrl) {
-      console.log('No Zapier webhook URL configured - skipping webhook notification');
+      console.log('❌ No Zapier webhook URL configured - skipping webhook notification');
+      console.log('Available env vars:', {
+        hasZapierUrl: !!process.env.ZAPIER_WEBHOOK_URL,
+        hasCrmUrl: !!process.env.CRM_WEBHOOK_URL,
+        hasBaseUrl: !!process.env.NEXT_PUBLIC_BASE_URL,
+        baseUrl: process.env.NEXT_PUBLIC_BASE_URL
+      });
       return;
     }
 
     console.log(`🔗 Triggering Zapier webhook for analysis ${analysisId}`);
+    console.log(`📍 Webhook URL configured: ${zapierWebhookUrl.substring(0, 30)}...`); // Log partial URL for debugging
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -356,7 +363,19 @@ export class AnalysisEngine {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002'}/api/webhook`, {
+        // Fix the base URL - remove @ if present
+        const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002').replace(/^@/, '');
+        const webhookEndpoint = `${baseUrl}/api/webhook`;
+        console.log(`📍 Calling webhook endpoint: ${webhookEndpoint}`);
+
+        const requestBody = {
+          analysisId,
+          trigger: 'analysis_completed',
+          timestamp: new Date().toISOString()
+        };
+        console.log(`📤 Request body:`, requestBody);
+
+        const response = await fetch(webhookEndpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -364,11 +383,7 @@ export class AnalysisEngine {
             'X-Webhook-Source': 'LinkScore-AutoTrigger',
             'X-Analysis-ID': analysisId
           },
-          body: JSON.stringify({
-            analysisId,
-            trigger: 'analysis_completed',
-            timestamp: new Date().toISOString()
-          }),
+          body: JSON.stringify(requestBody),
           signal: controller.signal
         });
 
