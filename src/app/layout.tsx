@@ -50,6 +50,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full">
+      <head>
+        <meta name="referrer" content="no-referrer-when-downgrade" />
+      </head>
       <body className={`${inter.variable} font-sans antialiased h-full bg-gray-50 text-gray-900`}>
         <div id="root" className="min-h-full">
           {children}

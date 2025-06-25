@@ -142,7 +142,7 @@ export class AnalysisEngine {
       });
       
       // Convert V2 result to old format
-      const result = this.convertV2Result(v2Result, existingAnalysisId || '');
+      const result = this.convertV2Result(v2Result, existingAnalysisId || '', formData);
       
       // Update database with results
       if (existingAnalysisId) {
@@ -239,18 +239,18 @@ export class AnalysisEngine {
   }
 
   // Helper methods
-  private convertV2Result(v2Result: any, analysisId: string): AnalysisResult {
+  private convertV2Result(v2Result: any, analysisId: string, formData: FormData): AnalysisResult {
     // Calculate performance data
     const performanceData = {
       authorityLinksGained: v2Result.metrics.linkGrowth,
-      expectedLinks: Math.floor((v2Result.metrics.monthlySpend * v2Result.metrics.investmentMonths) / 667),
+      expectedLinks: Math.floor((formData.monthlySpend * formData.investmentMonths) / 667),
       currentAuthorityLinks: v2Result.metrics.currentAuthorityLinks,
       costPerAuthorityLink: v2Result.metrics.linkGrowth > 0 
-        ? (v2Result.metrics.monthlySpend * v2Result.metrics.investmentMonths) / v2Result.metrics.linkGrowth
+        ? (formData.monthlySpend * formData.investmentMonths) / v2Result.metrics.linkGrowth
         : 0,
       performance: 0,
       campaignStartDate: v2Result.campaignStartDate?.toISOString() || new Date().toISOString(),
-      campaignDuration: v2Result.metrics.investmentMonths
+      campaignDuration: formData.investmentMonths
     };
     
     // Calculate competitive data
@@ -260,6 +260,13 @@ export class AnalysisEngine {
       competitorsBehind: v2Result.competitors.filter((c: any) => c.currentAuthorityLinks < v2Result.metrics.currentAuthorityLinks).length,
       gapPercentage: 0
     };
+    
+    // Calculate gap percentage
+    if (competitiveData.averageCompetitorLinks > 0) {
+      competitiveData.gapPercentage = Math.round(
+        ((competitiveData.averageCompetitorLinks - competitiveData.clientAuthorityLinks) / competitiveData.averageCompetitorLinks) * 100
+      );
+    }
     
     // Convert competitor historical data
     const competitorHistoricalData: Record<string, any> = {};
@@ -309,6 +316,7 @@ export class AnalysisEngine {
         performanceScore: Math.round(result.linkScore?.breakdown?.performanceVsExpected || 0),
         competitiveScore: Math.round(result.linkScore?.breakdown?.competitivePosition || 0),
         opportunityScore: result.linkGaps?.length || 0,
+        velocityScore: Math.round(result.linkScore?.breakdown?.velocityComparison || 0),
         priorityScore: result.leadScore?.priority || 0,
         potentialScore: result.leadScore?.potential || 0,
         currentAuthorityLinks: result.performanceData?.currentAuthorityLinks || 0,

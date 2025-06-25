@@ -59,6 +59,7 @@ model Analysis {
   performanceScore  Decimal @map("performance_score") @db.Decimal(3,1)
   competitiveScore  Decimal @map("competitive_score") @db.Decimal(3,1)
   opportunityScore  Decimal @map("opportunity_score") @db.Decimal(3,1)
+  velocityScore     Decimal? @map("velocity_score") @db.Decimal(3,1)
   
   // Lead Scoring
   priorityScore     Int @map("priority_score") // 0-100 for sales prioritization

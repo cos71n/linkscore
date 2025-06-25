@@ -112,7 +112,7 @@ export async function GET(
       try {
         console.log('💰 Calculating cost efficiency...');
         const expectedCostPerLink = (analysis.monthlySpend / 1000) * 667; // $667 per $1k spend baseline
-        const actualCostPerLink = analysis.costPerAuthorityLink;
+        const actualCostPerLink = analysis.costPerAuthorityLink ? Number(analysis.costPerAuthorityLink) : 0;
       
       // Handle null or undefined values properly
       if (!actualCostPerLink || actualCostPerLink === 0 || expectedCostPerLink === 0) {
@@ -148,7 +148,7 @@ export async function GET(
       breakdown: {
         competitivePosition: analysis.competitiveScore || 0, // Out of 30
         performanceVsExpected: analysis.performanceScore || 0, // Out of 25  
-        velocityComparison: analysis.opportunityScore || 0, // Out of 20
+        velocityComparison: analysis.velocityScore ? Number(analysis.velocityScore) : 0, // Out of 20 (FIX: use velocityScore)
         marketShareGrowth: calculateMarketShareGrowth(), // Out of 15 (now calculated!)
         costEfficiency: calculateCostEfficiency(), // Out of 10 (now calculated!)
         modifiers: 0 // Bonus/penalty points
@@ -283,7 +283,7 @@ export async function GET(
         competitorAverageLinks: analysis.competitorAverageLinks || 0,
         linkGapsTotal: analysis.linkGapsTotal || 0,
         linkGapsHighPriority: analysis.linkGapsHighPriority || 0,
-        costPerAuthorityLink: analysis.costPerAuthorityLink || 0
+        costPerAuthorityLink: analysis.costPerAuthorityLink ? Number(analysis.costPerAuthorityLink) : 0
       },
       
       // Competitive analysis
