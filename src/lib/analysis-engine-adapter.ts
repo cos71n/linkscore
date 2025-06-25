@@ -93,6 +93,7 @@ export class AnalysisEngine {
     try {
       // Update status to processing
       if (existingAnalysisId) {
+        console.log('📝 Updating analysis status to processing...');
         await prisma.analysis.update({
           where: { id: existingAnalysisId },
           data: { 
@@ -132,6 +133,7 @@ export class AnalysisEngine {
       campaignStartDate.setMonth(campaignStartDate.getMonth() - formData.investmentMonths);
       
       // Run analysis using V2 engine
+      console.log('🔧 Running V2 analysis engine...');
       const v2Result = await this.engineV2.runAnalysis({
         domain: formData.domain,
         keywords: formData.keywords,
@@ -141,18 +143,25 @@ export class AnalysisEngine {
         campaignStartDate
       });
       
+      console.log('✅ V2 analysis completed successfully');
+      
       // Convert V2 result to old format
       const result = this.convertV2Result(v2Result, existingAnalysisId || '', formData);
       
       // Update database with results
       if (existingAnalysisId) {
+        console.log('💾 Calling finalizeAnalysis to save results and trigger webhook...');
         await this.finalizeAnalysis(existingAnalysisId, result, v2Result.processingTime);
+        console.log('✅ finalizeAnalysis completed');
+      } else {
+        console.log('⚠️ No existingAnalysisId, skipping finalizeAnalysis');
       }
       
       return result;
       
     } catch (error: any) {
       console.error('❌ Analysis failed:', error);
+      console.error('Error stack:', error.stack);
       
       // Update database with error
       if (existingAnalysisId) {
@@ -304,8 +313,10 @@ export class AnalysisEngine {
   }
 
   private async finalizeAnalysis(analysisId: string, result: any, processingTime: number) {
+    console.log(`🎯 finalizeAnalysis called for ${analysisId}`);
     const linkScore = result.linkScore?.overall || 0;
     
+    console.log('💾 Updating analysis in database...');
     await prisma.analysis.update({
       where: { id: analysisId },
       data: {
@@ -334,15 +345,31 @@ export class AnalysisEngine {
         processingTimeSeconds: processingTime
       }
     });
+    console.log('✅ Database update completed');
 
     // Trigger webhook notification
-    console.log('🎯 Triggering webhook notification...');
-    await this.triggerZapierWebhook(analysisId);
+    console.log('🎯 About to trigger webhook notification...');
+    try {
+      await this.triggerZapierWebhook(analysisId);
+      console.log('✅ triggerZapierWebhook completed');
+    } catch (error: any) {
+      console.error('❌ triggerZapierWebhook failed:', error);
+      console.error('Error stack:', error.stack);
+    }
   }
 
   private async triggerZapierWebhook(analysisId: string, maxRetries: number = 3) {
+    console.log(`🚀 triggerZapierWebhook called for analysis ${analysisId}`);
+    
     const zapierWebhookUrl = process.env.ZAPIER_WEBHOOK_URL;
     const crmWebhookUrl = process.env.CRM_WEBHOOK_URL;
+    
+    console.log('📋 Webhook configuration:', {
+      hasZapierUrl: !!zapierWebhookUrl,
+      hasCrmUrl: !!crmWebhookUrl,
+      zapierUrlPrefix: zapierWebhookUrl?.substring(0, 50),
+      crmUrlPrefix: crmWebhookUrl?.substring(0, 50)
+    });
     
     if (!zapierWebhookUrl && !crmWebhookUrl) {
       console.log('❌ No webhook URLs configured - skipping webhook notification');
@@ -353,18 +380,37 @@ export class AnalysisEngine {
     
     // Get the analysis data to build the payload
     try {
-      const analysis = await this.getAnalysis(analysisId);
+      console.log('📊 Fetching analysis data from database...');
+      const analysis = await prisma.analysis.findUnique({
+        where: { id: analysisId },
+        include: {
+          user: true  // Include user data for webhook payload
+        }
+      });
+      
+      console.log('📊 Analysis data fetched:', {
+        found: !!analysis,
+        status: analysis?.status,
+        hasUser: !!analysis?.user,
+        linkScore: analysis?.linkScore
+      });
       
       if (!analysis || analysis.status !== 'completed') {
-        console.error('❌ Analysis not found or not completed');
+        console.error('❌ Analysis not found or not completed:', {
+          found: !!analysis,
+          status: analysis?.status
+        });
         return;
       }
 
       // Build the webhook payload directly
+      console.log('🏗️ Building webhook payload...');
       const payload = await this.buildWebhookPayload(analysis);
+      console.log('✅ Webhook payload built successfully');
       
       // Send to all configured webhooks
       const webhookUrls = [zapierWebhookUrl, crmWebhookUrl].filter(Boolean) as string[];
+      console.log(`📮 Sending to ${webhookUrls.length} webhook(s)`);
       
       for (const webhookUrl of webhookUrls) {
         const isZapier = webhookUrl.includes('zapier.com') || webhookUrl.includes('hooks.zapier.com');
@@ -372,9 +418,11 @@ export class AnalysisEngine {
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
+            console.log(`🔄 Attempt ${attempt}/${maxRetries}...`);
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+            console.log('📡 Making fetch request...');
             const response = await fetch(webhookUrl, {
               method: 'POST',
               headers: {
@@ -392,6 +440,7 @@ export class AnalysisEngine {
             });
 
             clearTimeout(timeoutId);
+            console.log(`📨 Response received: ${response.status} ${response.statusText}`);
 
             if (response.ok) {
               console.log(`✅ Webhook delivered successfully to ${isZapier ? 'Zapier' : 'CRM'}`);
@@ -399,7 +448,7 @@ export class AnalysisEngine {
               break; // Success, no need to retry
             } else {
               const errorText = await response.text().catch(() => 'Unknown error');
-              console.warn(`⚠️ Webhook failed (attempt ${attempt}/${maxRetries}) - Status: ${response.status}`);
+              console.warn(`⚠️ Webhook failed (attempt ${attempt}/${maxRetries}) - Status: ${response.status}, Error: ${errorText}`);
               
               if (attempt === maxRetries) {
                 await this.logWebhookEvent(analysisId, 'FAILED', `Failed to ${isZapier ? 'Zapier' : 'CRM'} after ${maxRetries} attempts - Status: ${response.status}`);
@@ -407,6 +456,7 @@ export class AnalysisEngine {
             }
           } catch (error: any) {
             console.error(`❌ Webhook error (attempt ${attempt}/${maxRetries}):`, error.message);
+            console.error('Error details:', error);
             
             if (attempt === maxRetries) {
               await this.logWebhookEvent(analysisId, 'ERROR', `Network error to ${isZapier ? 'Zapier' : 'CRM'}: ${error.message}`);
@@ -415,12 +465,16 @@ export class AnalysisEngine {
 
           // Wait before retry
           if (attempt < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            const waitTime = Math.pow(2, attempt) * 1000;
+            console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
           }
         }
       }
+      console.log('✅ Webhook processing completed');
     } catch (error: any) {
-      console.error('❌ Failed to build webhook payload:', error);
+      console.error('❌ Failed to process webhook:', error);
+      console.error('Error stack:', error.stack);
       await this.logWebhookEvent(analysisId, 'ERROR', `Failed to build payload: ${error.message}`);
     }
   }
