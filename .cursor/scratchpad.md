@@ -67,7 +67,8 @@ const AUTHORITY_CRITERIA = {
 
 ### 📱 User Experience 
 - [x] **Mobile Hamburger Menu UX** - FIXED: Scroll-based visibility controls implemented
-- [x] **Analysis Results Page** - OPTIMIZED: Updated authority link criteria display 
+- [x] **Analysis Results Page** - OPTIMIZED: Updated authority link criteria display
+- [x] **YouTube Video Update** - UPDATED: Changed video embed from dQw4w9WgXcQ to OLRlXEDGW9o 
 
 ### 🔍 Analysis Quality
 - [x] **Competitor Domain Quality** - IMPROVED: Directory-type domains now blocked from analysis
@@ -102,6 +103,17 @@ const AUTHORITY_CRITERIA = {
   - [x] Competitor domain blocking implementation ✅
 
 ## Current Sprint / Active Tasks
+
+### Task: Update YouTube Video on Results Page
+**Goal**: Change YouTube video embed from dQw4w9WgXcQ to OLRlXEDGW9o
+**Status**: ✅ COMPLETE
+**Time**: 5 minutes
+
+#### Implementation Summary
+- ✅ Updated YouTube video ID in src/app/results/[id]/page.tsx
+- ✅ Changed from dQw4w9WgXcQ to OLRlXEDGW9o
+- ✅ No other changes required (title, dimensions, and iframe properties remain the same)
+- ✅ Video should now display the new content from https://youtu.be/OLRlXEDGW9o
 
 ### Task: Fix YouTube Embed Cloudflare Compatibility Issue
 **Goal**: Fix YouTube video embeds that stopped working after Cloudflare security updates
