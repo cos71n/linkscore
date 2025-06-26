@@ -54,6 +54,22 @@ export default function HomePage() {
 
   const totalSteps = 5;
 
+  // Capture Facebook Click ID for attribution tracking
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fbclid = urlParams.get('fbclid');
+    
+    if (fbclid) {
+      console.log('📊 Facebook Click ID captured:', fbclid.substring(0, 20) + '...');
+      localStorage.setItem('fbclid', fbclid);
+      
+      // Optional: Clean URL to remove fbclid parameter for better UX
+      const url = new URL(window.location.href);
+      url.searchParams.delete('fbclid');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+
   // Domain sanitization function
   const sanitizeDomain = (input: string): string => {
     let domain = input.trim();
@@ -99,6 +115,23 @@ export default function HomePage() {
         .map(k => k.trim())
         .filter(k => k.length > 0);
 
+      // Get Facebook attribution data
+      const fbclid = localStorage.getItem('fbclid');
+      
+      // Get Facebook Browser ID from cookie (set by Facebook Pixel)
+      const getFacebookBrowserId = (): string | null => {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+          const [name, value] = cookie.trim().split('=');
+          if (name === '_fbp') {
+            return value;
+          }
+        }
+        return null;
+      };
+      
+      const fbp = getFacebookBrowserId();
+      
       // Prepare submission data in the format our API expects
       const submissionData = {
         domain: formData.domain,
@@ -110,7 +143,10 @@ export default function HomePage() {
         monthlySpend: getMonthlySpendFromRange(formData.spendRange),
         investmentMonths: getInvestmentMonthsFromRange(formData.durationRange),
         spendRange: formData.spendRange,
-        durationRange: formData.durationRange
+        durationRange: formData.durationRange,
+        // Facebook attribution data
+        facebookClickId: fbclid,
+        facebookBrowserId: fbp
       };
 
       console.log('Submitting to API:', submissionData);

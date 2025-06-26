@@ -103,6 +103,44 @@ export default function AnalysisResultsPage() {
         }
         
         setAnalysis(data);
+        
+        // Track Facebook conversion event for completed analysis
+        if (typeof window !== 'undefined' && window.fbq) {
+          console.log('📊 Tracking Facebook conversion: CompleteAnalysis');
+          
+          // Generate unique Event ID for deduplication (when using both Pixel + CAPI)
+          const eventId = `${data.analysisId}_${Date.now()}`;
+          console.log('🆔 Generated Event ID:', eventId);
+          
+          // Track the conversion with value and custom parameters
+          window.fbq('track', 'Lead', {
+            value: data.campaign?.totalInvestment || 0,
+            currency: 'AUD',
+            content_name: 'LinkScore Analysis',
+            content_category: 'seo_analysis'
+          }, { eventID: eventId + '_lead' });
+          
+          // Track custom completion event
+          window.fbq('trackCustom', 'CompleteAnalysis', {
+            link_score: data.linkScore?.overall || 0,
+            monthly_spend: data.campaign?.monthlySpend || 0,
+            investment_months: data.campaign?.investmentMonths || 0,
+            domain: data.user?.domain || '',
+            location: data.user?.location || '',
+            authority_links: data.metrics?.currentAuthorityLinks || 0,
+            conversion_value: data.campaign?.totalInvestment || 0
+          }, { eventID: eventId + '_complete' });
+          
+          // Store Event IDs for potential server-side tracking
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('fb_event_ids', JSON.stringify({
+              analysisId: data.analysisId,
+              leadEventId: eventId + '_lead',
+              completeEventId: eventId + '_complete',
+              timestamp: new Date().toISOString()
+            }));
+          }
+        }
       } catch (err) {
         setError(`Failed to load analysis results: ${err instanceof Error ? err.message : 'Unknown error'}`);
         console.error('Error fetching analysis:', err);

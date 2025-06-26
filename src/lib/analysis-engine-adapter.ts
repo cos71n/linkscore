@@ -9,6 +9,8 @@ import { encryptEmail, hashPhone, decryptEmail } from './security/encryption';
 export interface FormData extends UserInput {
   monthlySpend: number;
   investmentMonths: number;
+  facebookClickId?: string; // For Facebook ads attribution (fbclid)
+  facebookBrowserId?: string; // For Facebook browser tracking (fbp)
 }
 
 interface AnalysisResult {
@@ -55,7 +57,9 @@ export class AnalysisEngine {
       company: sanitizedData.company,
       location: sanitizedData.location,
       ip: ipAddress,
-      userAgent
+      userAgent,
+      facebookClickId: formData.facebookClickId,
+      facebookBrowserId: formData.facebookBrowserId
     });
     
     // Calculate campaign start date
@@ -711,6 +715,21 @@ export class AnalysisEngine {
         marketValue: locationInfo.marketValue
       },
       
+      // Facebook attribution data for CAPI/Zapier
+      facebookAttribution: {
+        fbclid: analysis.user.facebookClickId,          // Facebook Click ID (from ads)
+        fbp: analysis.user.facebookBrowserId,           // Facebook Browser ID (from pixel)
+        clientIpAddress: analysis.user.ipAddress,
+        clientUserAgent: analysis.user.userAgent,
+        hasAttribution: !!(analysis.user.facebookClickId || analysis.user.facebookBrowserId),
+        // Event IDs for deduplication when using both Pixel + CAPI
+        eventIds: {
+          leadEventId: `${analysis.id}_${Date.now()}_lead`,
+          completeEventId: `${analysis.id}_${Date.now()}_complete`,
+          baseEventId: `${analysis.id}_${Date.now()}`
+        }
+      },
+      
       campaign: {
         monthlySpend: analysis.monthlySpend,
         investmentMonths: analysis.investmentMonths,
@@ -877,6 +896,8 @@ export class AnalysisEngine {
     location: string;
     ip: string;
     userAgent: string;
+    facebookClickId?: string;
+    facebookBrowserId?: string;
   }) {
     const emailResult = await encryptEmail(userData.email);
     const hashedPhone = userData.phone ? await hashPhone(userData.phone) : null;
@@ -902,7 +923,9 @@ export class AnalysisEngine {
         companyName: userData.company,
         location: userData.location,
         ipAddress: userData.ip,
-        userAgent: userData.userAgent
+        userAgent: userData.userAgent,
+        facebookClickId: userData.facebookClickId,
+        facebookBrowserId: userData.facebookBrowserId
       }
     });
   }
